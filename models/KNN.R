@@ -1,7 +1,7 @@
 library(class)
 library(caret)
 
-# Ensure outcome is a factor with consistent levels
+# Outcome factors
 train_y <- factor(df_train$is_canceled, levels = c(0,1))
 test_y  <- factor(df_test$is_canceled,  levels = c(0,1))
 
@@ -17,7 +17,7 @@ results <- data.frame(
   Sensitivity = NA
 )
 
-# Loop over k values
+# Loop over k values to tune
 for (i in seq_along(ks)) {
   pred_i <- knn(train = train_x, test = test_x, cl = train_y, k = ks[i])
   pred_i <- factor(pred_i, levels = c("0","1"))
@@ -28,19 +28,35 @@ for (i in seq_along(ks)) {
   results$Sensitivity[i] <- cm_i$byClass["Sensitivity"]
 }
 
-results
+# Select k with best specificity (or whichever metric you want)
+best_k <- results$k[which.max(results$Specificity)]
 
-# Find best k for overall accuracy and specificity
-best_k_acc  <- results$k[which.max(results$Accuracy)]
-best_k_spec <- results$k[which.max(results$Specificity)]
+# Final KNN predictions (test)
+pred_knn <- knn(train_x, test_x, cl = train_y, k = best_k, prob = TRUE)
+pred_knn <- factor(pred_knn, levels = c("0","1"))
 
-# Final KNN optimized for accuracy
-pred_knn_acc <- knn(train_x, test_x, cl = train_y, k = best_k_acc)
-pred_knn_acc <- factor(pred_knn_acc, levels = c("0","1"))
-cm_knn_acc <- confusionMatrix(pred_knn_acc, test_y, positive = "1")
+# Convert KNN "prob" attribute to probability of class "1"
+knn_prob_attr <- attr(pred_knn, "prob")
+knn_prob_attr <- attr(pred_knn, "prob")
+if (is.null(knn_prob_attr) || length(knn_prob_attr) == 0) {
+  knn_test_prob <- rep(0.5, length(pred_knn))
+} else {
+  knn_test_prob <- ifelse(pred_knn == "1", knn_prob_attr, 1 - knn_prob_attr)
+}
 
-# Final KNN optimized for specificity
-pred_knn_spec <- knn(train_x, test_x, cl = train_y, k = best_k_spec)
-pred_knn_spec <- factor(pred_knn_spec, levels = c("0","1"))
-cm_knn_spec <- confusionMatrix(pred_knn_spec, test_y, positive = "1")
-  
+# Train-side probabilities (KNN on train)
+pred_knn_train <- knn(train_x, train_x, cl = train_y, k = best_k, prob = TRUE)
+knn_prob_attr_train <- attr(pred_knn_train, "prob")
+if (is.null(knn_prob_attr_train) || length(knn_prob_attr_train) == 0) {
+  knn_train_prob <- rep(0.5, length(pred_knn_train))
+} else {
+  knn_train_prob <- ifelse(pred_knn_train == "1", knn_prob_attr_train, 1 - knn_prob_attr_train)
+}
+
+# Save probabilities for stacking
+saveRDS(knn_train_prob, "RDS/knn_train_prob.rds")
+saveRDS(knn_test_prob,  "RDS/knn_test_prob.rds")
+
+# confusion matrices for reporting
+cm_knn <- confusionMatrix(pred_knn, test_y, positive = "1")
+cm_knn

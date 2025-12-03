@@ -20,16 +20,26 @@ for (k in kernels) {
     probability = TRUE
   )
   
+  # Predictions on test
   pred_class <- predict(svm_model, df_test)
   pred_class <- factor(pred_class, levels = levels(df_test$is_canceled))
   
   prob_obj <- predict(svm_model, df_test, probability = TRUE)
-  pred_prob <- attr(prob_obj, "probabilities")
+  pred_prob <- attr(prob_obj, "probabilities")[, "1"]
   
-  # Ensure positive class ("1") is used regardless of column order
-  pos_col <- which(colnames(pred_prob) == "1")
-  pred_prob <- pred_prob[, pos_col]
+  if (k == "linear") {
+    saveRDS(svm_model, "RDS/svm_linear_model.rds")
+    train_prob <- attr(predict(svm_model, df_train, probability = TRUE), "probabilities")[, "1"]
+    saveRDS(train_prob, "RDS/svm_linear_train_prob.rds")
+    saveRDS(pred_prob,  "RDS/svm_linear_test_prob.rds")
+  }
   
+  # Also save train probabilities for stacking
+  train_prob <- attr(predict(svm_model, df_train, probability = TRUE), "probabilities")[, "1"]
+  saveRDS(train_prob, paste0("RDS/svm_", k, "_train_prob.rds"))
+  
+  
+  # Metrics
   cm <- confusionMatrix(pred_class, df_test$is_canceled)
   roc_obj <- roc(df_test$is_canceled, pred_prob)
   auc_val <- auc(roc_obj)
@@ -37,9 +47,3 @@ for (k in kernels) {
   svm_results[[k]] <- cm
   svm_aucs[k] <- auc_val
 }
-
-comparison_svm <- data.frame(
-  Kernel = kernels,
-  Accuracy = sapply(svm_results, function(x) x$overall["Accuracy"]),
-  AUC = as.numeric(svm_aucs)
-)

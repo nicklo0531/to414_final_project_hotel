@@ -13,7 +13,6 @@ selected_hotels <- hotel[hotel$hotel == "City Hotel - Ahmedabad", ]
 drop_cols <- c("company", "hotel", "arrival_date_year",
                "reservation_status_date", "reservation_status", "assigned_room_type")
 selected_hotels[drop_cols] <- NULL
-levels(df_train$deposit_type) <- c("a", "b")
 
 # Remove NAs
 clean_hotels <- na.omit(selected_hotels)
@@ -67,3 +66,9 @@ df_test  <- cbind(is_canceled = y_test, X_test_scaled)
 df_train$is_canceled <- factor(df_train$is_canceled, levels = c(0, 1))
 df_test$is_canceled  <- factor(df_test$is_canceled,  levels = c(0, 1))
 
+if ("deposit_type" %in% names(df_train)) {
+  df_train <- df_train %>%
+    mutate(deposit_type = recode(deposit_type,
+                                 "refundable" = "a",
+                                 "non-refundable" = "b"))
+}

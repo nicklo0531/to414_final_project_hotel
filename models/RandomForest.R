@@ -59,6 +59,15 @@ rf_model <- randomForest(
   ntree = 800
 )
 
+# Save model and probabilities for stacking
+saveRDS(rf_model, "RDS/rf_model.rds")
+
+rf_train_prob <- predict(rf_model, df_train, type = "prob")[, "1"]
+rf_test_prob  <- predict(rf_model, df_test,  type = "prob")[, "1"]
+
+saveRDS(rf_train_prob, "RDS/rf_train_prob.rds")
+saveRDS(rf_test_prob,  "RDS/rf_test_prob.rds")
+
 rf_pred <- predict(rf_model, df_test)
 
 rf_cm <- confusionMatrix(
@@ -66,7 +75,5 @@ rf_cm <- confusionMatrix(
   factor(df_test$is_canceled, levels = c(0,1)),
   positive = "1"
 )
-
-
 rf_cm
 

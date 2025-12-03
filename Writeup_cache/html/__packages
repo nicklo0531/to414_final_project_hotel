@@ -8,3 +8,5 @@ pROC
 randomForest
 rpart
 dplyr
+rpart.plot
+C50
