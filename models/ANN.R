@@ -1,7 +1,7 @@
 library(neuralnet)
 library(caret)
-df_train <- read.csv("../data/hotel_train.csv")
-df_test <- read.csv("../data/hotel_test.csv")
+df_train <- read.csv("data/hotel_train.csv")
+df_test <- read.csv("data/hotel_test.csv")
 
 set.seed(12345)
 df_train_small <- df_train[sample(nrow(df_train), size = 0.3 * nrow(df_train)), ]
