@@ -17,21 +17,6 @@ knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
 ```
 
-```{r}
-# List all .R files
-r_files <- list.files("models", pattern = "\\.R$", full.names = TRUE)
-
-# Search for "outputs/"
-for(f in r_files){
-  lines <- readLines(f)
-  idx <- grep("outputs/", lines)
-  if(length(idx) > 0){
-    cat("Found in", f, "lines:", idx, "\n")
-    print(lines[idx])
-  }
-}
-```
-
 
 ```{r}
 library(caret)
