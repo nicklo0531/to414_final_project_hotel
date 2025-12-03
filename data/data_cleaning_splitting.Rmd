@@ -87,3 +87,4 @@ write.csv(df_test,  "hotel_test.csv",  row.names = FALSE)
 cat("Train samples:", nrow(df_train), "\n")
 cat("Test samples: ", nrow(df_test),  "\n")
 ```
+
