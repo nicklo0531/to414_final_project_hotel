@@ -20,7 +20,7 @@ knitr::opts_chunk$set(message = FALSE)
 # Step 0 - Why?
 
 
-
+image
 
 explain hotel cancellation
 
