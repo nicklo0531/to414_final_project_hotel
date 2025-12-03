@@ -15,6 +15,12 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
+library("tidyverse")
+library(neuralnet)
+library(caret)
+library(class)
+library(C50)
+library(kernlab)
 ```
 
 link to dataset: https://www.kaggle.com/datasets/kundanbedmutha/hotel-booking-reservation
