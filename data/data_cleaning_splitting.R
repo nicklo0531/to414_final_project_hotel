@@ -63,4 +63,6 @@ X_test_scaled <- as.data.frame(mapply(function(col, params) {
 df_train <- cbind(is_canceled = y_train, X_train_scaled)
 df_test  <- cbind(is_canceled = y_test, X_test_scaled)
 
+df_train$is_canceled <- factor(df_train$is_canceled, levels = c(0, 1))
+df_test$is_canceled  <- factor(df_test$is_canceled,  levels = c(0, 1))
 

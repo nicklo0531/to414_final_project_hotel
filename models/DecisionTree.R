@@ -6,10 +6,6 @@ library(pROC)
 set.seed(12345)
 
 
-df_train$is_canceled <- as.factor(df_train$is_canceled)
-df_test$is_canceled  <- as.factor(df_test$is_canceled)
-
-
 # Initial rpart
 rpart_model <- rpart(is_canceled ~ ., data = df_train, method = "class", control = rpart.control(cp = 0.01))
 rpart_pred_class <- predict(rpart_model, df_test, type = "class")
@@ -49,7 +45,3 @@ comparison <- data.frame(
   Accuracy = c(cm_dt$overall["Accuracy"], cm_c50$overall["Accuracy"]),
   AUC = c(auc_dt, auc_c50)
 )
-
-
-
-
