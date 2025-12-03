@@ -5,7 +5,7 @@ output: html_document
 
 ```{r logistic_regression_results}
 setwd("..")
-
+source("data/data_cleaning_splitting.R")
 # Run the logistic regression script 
 source("models/LogisticRegression.R")
 

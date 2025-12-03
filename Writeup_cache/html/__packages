@@ -1,0 +1,10 @@
+ggplot2
+lattice
+caret
+class
+neuralnet
+e1071
+pROC
+randomForest
+rpart
+dplyr

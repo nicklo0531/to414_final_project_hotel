@@ -11,4 +11,4 @@ ann_pred <- predict(ann_model, df_test)
 
 ann_bin_pred <- ifelse(ann_pred >= 0.5, 1, 0)
 ann_cm <- confusionMatrix(as.factor(ann_bin_pred), as.factor(df_test$is_canceled), positive = "1")
-ann_cm 
+ann_cm

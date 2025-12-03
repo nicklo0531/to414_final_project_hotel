@@ -1689,9 +1689,37 @@ z-index: 9999;
 <p>link to dataset: <a href="https://www.kaggle.com/datasets/kundanbedmutha/hotel-booking-reservation" class="uri">https://www.kaggle.com/datasets/kundanbedmutha/hotel-booking-reservation</a></p>
 <div id="step-0---why" class="section level1">
 <h1>Step 0 - Why?</h1>
-<p>image</p>
-<p>explain hotel cancellation</p>
-<p>allow overbooking to minimize damage</p>
+<p>We have been hired by IHG, a global Hotel and Resorts brand, to help
+the Management of the City Hotel Ahmedabad, India minimize revenue loss
+through late cancellations that leave rooms empty. Our business problem
+is pretty simple: we’re a high-end hotel that wants to predict which
+reservations are likely to cancel before the guest ever shows up.
+Because cancellations are common, hotels usually “overbook” a little bit
+to avoid having empty rooms. But if we overbook too aggressively and the
+guests don’t cancel, we end up with more people than rooms and have to
+send someone to another hotel and compensate them. On the other hand, if
+we play it too safe and don’t overbook at all, we leave expensive rooms
+empty.</p>
+<p>We act as consultants, and management has provided us with a data set
+of 4,850 reservations with 27 variables plus the final binary outcome
+is_canceled, which is 1 if the guest cancelled and 0 if they actually
+stayed. We are trying to predict this outcome through the other
+variables that describe what the hotel already knows at booking time
+like lead time, length of previous stay, number of guests, room type,
+booking channel, and previous cancellations.</p>
+<p>In this project our prediction task is to estimate, for each new
+booking, the probability that it will be canceled. We build and compare
+several models including Logistic Regression, k-Nearest-Neighbours,
+Artificial Neural Network, Decision Tree, Random Forest, and a Support
+Vector Machine. We’ll then build a stacked meta model (second layer
+decision tree) that uses the predicted probabilities from the base
+models as inputs and produces a final cancellation probability which the
+hotel can use when setting its overbooking policy.</p>
+<p>We will evaluate the differences between all individual models and
+the stacked model in classic statistical metrics and by computing the
+expected net financial impact of model implementation. From this
+analysis, we are able to provide management with a recommendation of
+which model to implement and how to do so.</p>
 <div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a>df <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(<span class="st">&quot;data/hotel_cleaned.csv&quot;</span>)</span>
 <span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
 <span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a></span>
@@ -1711,17 +1739,162 @@ folder.</p>
 <div id="step-45-create-predict-models" class="section level2">
 <h2>Step 4&amp;5: Create, Predict Models</h2>
 <p>source(“…”)</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;data/data_cleaning_splitting.R&quot;</span>)</span></code></pre></div>
 <div id="logistic-regression" class="section level3">
 <h3>Logistic Regression</h3>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;models/LogisticRegression.R&quot;</span>)</span></code></pre></div>
+<pre><code>## Initial AIC: 3244.421 
+## Step 1 : drop countryISR AIC: 3244.421 -&gt; 3242.648 
+## Step 2 : drop arrival_date_day_of_month AIC: 3242.648 -&gt; 3241.003 
+## Step 3 : drop arrival_date_week_number AIC: 3241.003 -&gt; 3239.352 
+## Step 4 : drop mealHB AIC: 3239.352 -&gt; 3237.944 
+## Step 5 : drop stays_in_week_nights AIC: 3237.944 -&gt; 3236.748 
+## Step 6 : drop stays_in_weekend_nights AIC: 3236.748 -&gt; 3235.409 
+## Step 7 : drop customer_typeTransient AIC: 3235.409 -&gt; 3234.54 
+## Step 8 : drop distribution_channelGDS AIC: 3234.54 -&gt; 3233.87 
+## Final AIC: 3233.87</code></pre>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="co"># Confusion matrix and metric summary</span></span>
+<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>cm_log</span></code></pre></div>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    0    1
+##          0 1104  742
+##          1    0   94
+##                                           
+##                Accuracy : 0.6175          
+##                  95% CI : (0.5955, 0.6392)
+##     No Information Rate : 0.5691          
+##     P-Value [Acc &gt; NIR] : 8.215e-06       
+##                                           
+##                   Kappa : 0.126           
+##                                           
+##  Mcnemar&#39;s Test P-Value : &lt; 2.2e-16       
+##                                           
+##             Sensitivity : 0.11244         
+##             Specificity : 1.00000         
+##          Pos Pred Value : 1.00000         
+##          Neg Pred Value : 0.59805         
+##              Prevalence : 0.43093         
+##          Detection Rate : 0.04845         
+##    Detection Prevalence : 0.04845         
+##       Balanced Accuracy : 0.55622         
+##                                           
+##        &#39;Positive&#39; Class : 1               
+## </code></pre>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a>metric_summary</span></code></pre></div>
+<pre><code>##        Metric Threshold     Value
+## 1    Accuracy      0.59 0.7175258
+## 2 Sensitivity      0.01 1.0000000
+## 3   Precision      0.92 1.0000000
+## 4       Kappa      0.52 0.3940188</code></pre>
 </div>
 <div id="knn" class="section level3">
 <h3>KNN</h3>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;models/KNN.R&quot;</span>)</span>
+<span id="cb9-2"><a href="#cb9-2" tabindex="-1"></a></span>
+<span id="cb9-3"><a href="#cb9-3" tabindex="-1"></a><span class="co"># Confusion matrix</span></span>
+<span id="cb9-4"><a href="#cb9-4" tabindex="-1"></a>cm_knn</span></code></pre></div>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction   0   1
+##          0 824 407
+##          1 280 429
+##                                           
+##                Accuracy : 0.6459          
+##                  95% CI : (0.6241, 0.6672)
+##     No Information Rate : 0.5691          
+##     P-Value [Acc &gt; NIR] : 3.186e-12       
+##                                           
+##                   Kappa : 0.2644          
+##                                           
+##  Mcnemar&#39;s Test P-Value : 1.531e-06       
+##                                           
+##             Sensitivity : 0.5132          
+##             Specificity : 0.7464          
+##          Pos Pred Value : 0.6051          
+##          Neg Pred Value : 0.6694          
+##              Prevalence : 0.4309          
+##          Detection Rate : 0.2211          
+##    Detection Prevalence : 0.3655          
+##       Balanced Accuracy : 0.6298          
+##                                           
+##        &#39;Positive&#39; Class : 1               
+## </code></pre>
 </div>
 <div id="ann" class="section level3">
 <h3>ANN</h3>
+<div class="sourceCode" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;models/ANN.R&quot;</span>)</span>
+<span id="cb11-2"><a href="#cb11-2" tabindex="-1"></a></span>
+<span id="cb11-3"><a href="#cb11-3" tabindex="-1"></a><span class="co"># Confusion matrix</span></span>
+<span id="cb11-4"><a href="#cb11-4" tabindex="-1"></a>ann_cm</span></code></pre></div>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction   0   1
+##          0 810 243
+##          1 294 593
+##                                          
+##                Accuracy : 0.7232         
+##                  95% CI : (0.7027, 0.743)
+##     No Information Rate : 0.5691         
+##     P-Value [Acc &gt; NIR] : &lt; 2e-16        
+##                                          
+##                   Kappa : 0.4398         
+##                                          
+##  Mcnemar&#39;s Test P-Value : 0.03095        
+##                                          
+##             Sensitivity : 0.7093         
+##             Specificity : 0.7337         
+##          Pos Pred Value : 0.6685         
+##          Neg Pred Value : 0.7692         
+##              Prevalence : 0.4309         
+##          Detection Rate : 0.3057         
+##    Detection Prevalence : 0.4572         
+##       Balanced Accuracy : 0.7215         
+##                                          
+##        &#39;Positive&#39; Class : 1              
+## </code></pre>
 </div>
 <div id="svm" class="section level3">
 <h3>SVM</h3>
+<div class="sourceCode" id="cb13"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;models/SVM.R&quot;</span>)</span>
+<span id="cb13-2"><a href="#cb13-2" tabindex="-1"></a></span>
+<span id="cb13-3"><a href="#cb13-3" tabindex="-1"></a><span class="co"># Show linear kernel (chosen for stacking) and comparison table</span></span>
+<span id="cb13-4"><a href="#cb13-4" tabindex="-1"></a>svm_results[[<span class="st">&quot;linear&quot;</span>]]</span></code></pre></div>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction   0   1
+##          0 957 252
+##          1 147 584
+##                                           
+##                Accuracy : 0.7943          
+##                  95% CI : (0.7756, 0.8121)
+##     No Information Rate : 0.5691          
+##     P-Value [Acc &gt; NIR] : &lt; 2.2e-16       
+##                                           
+##                   Kappa : 0.5742          
+##                                           
+##  Mcnemar&#39;s Test P-Value : 1.924e-07       
+##                                           
+##             Sensitivity : 0.8668          
+##             Specificity : 0.6986          
+##          Pos Pred Value : 0.7916          
+##          Neg Pred Value : 0.7989          
+##              Prevalence : 0.5691          
+##          Detection Rate : 0.4933          
+##    Detection Prevalence : 0.6232          
+##       Balanced Accuracy : 0.7827          
+##                                           
+##        &#39;Positive&#39; Class : 0               
+## </code></pre>
+<div class="sourceCode" id="cb15"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" tabindex="-1"></a>comparison_svm</span></code></pre></div>
+<pre><code>##                   Kernel  Accuracy       AUC
+## linear.Accuracy   linear 0.7943299 0.8673842
+## radial.Accuracy   radial 0.7309278 0.8319714
+## sigmoid.Accuracy sigmoid 0.7314433 0.8085713</code></pre>
 </div>
 <div id="decision-tree" class="section level3">
 <h3>Decision Tree</h3>
@@ -1732,8 +1905,29 @@ folder.</p>
 </div>
 <div id="step-6-combine-models" class="section level2">
 <h2>Step 6: Combine Models</h2>
-<p>with cost matrix</p>
-<p>without cost matrix</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;models/StackedDT.R&quot;</span>)</span></code></pre></div>
+<p>Given that giving someone a room at a different hotel plus
+compensation is about twice as expensive as an empty $500 room, the
+Random Forest with threshold 0.55 is the cheapest policy: it creates the
+lowest average loss per reservation. The other models either send too
+many guests away to other hotels or leave too many rooms empty, so their
+average cost per booking is higher.</p>
+<p>Looking at the table itself, each row is the “best” version of that
+model once we plug in our cost numbers. The Threshold column shows how
+high the predicted cancel-probability has to be before we treat a
+booking as a cancellation risk. Models with very high thresholds like
+the ANN at 0.99 are extremely picky and only flag the riskiest guests,
+which gives them huge Precision but lower Sensitivity because they miss
+a lot of actual cancellations. On the other side, the logistic model at
+0.01 basically flags almost everyone, so its sensitivity is higher but
+its precision drops. Accuracy and Kappa summarize overall performance,
+but the main number we care about is AvgCost, which turns all those
+trade-offs into an estimated dollar loss per reservation. Random Forest
+ends up with the lowest AvgCost, while the stacked model and SVM are
+close behind, and the ANN is the most expensive because it leaves too
+many empty rooms.</p>
+<p>with cost matrix (?)</p>
+<p>without cost matrix (??)</p>
 </div>
 <div id="step-7-final-prediction" class="section level2">
 <h2>Step 7: Final Prediction</h2>
@@ -1743,6 +1937,9 @@ folder.</p>
 </div>
 <div id="step-9-implications-limitations-and-further-steps" class="section level2">
 <h2>Step 9: Implications, Limitations, and Further Steps</h2>
+<p>Limitations: Did not explore financial impact by having a policy
+that</p>
+<p>Dynamic</p>
 </div>
 </div>
 
