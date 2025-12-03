@@ -3,19 +3,19 @@ title: "data_cleaning_splitting"
 output: html_document
 ---
 
-
+## Step 1 - Load Data
 ```{r}
 hotel <- read.csv("hotel_bookings_updated_2024.csv")
+```
+
+## Step 2 Clean Data
+```{r}
+# Select Ahmedabad because it has the largest sample of hotels in our dataset.
 selected_hotels <- hotel[hotel$hotel == "City Hotel - Ahmedabad", ]
-selected_hotels$company <- NULL
-```
-
-```{r}
 dim(selected_hotels)
-
-```
-
-```{r}
+# Company does not matter because it is all coming from the same hotel. Same for hotel.
+selected_hotels$company <- NULL
+selected_hotels$hotel <- NULL
 clean_hotels <- na.omit(selected_hotels)
 any(is.na(clean_hotels))
 ```
