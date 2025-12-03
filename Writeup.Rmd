@@ -82,6 +82,7 @@ source("models/LogisticRegression.R")
 # Confusion matrix and metric summary
 cm_log
 metric_summary
+metric_plot
 ```
 ### KNN
 
@@ -140,6 +141,7 @@ comparison_svm
 ```{r stacked_cost_matrix, cache=TRUE}
 source("models/StackedDT.R")
 best_by_cost
+plot_best_cost()
 ```
 
 Given that giving someone a room at a different hotel plus compensation is about twice as expensive as an empty $500 room, the Random Forest with threshold 0.55 is the cheapest policy: it creates the lowest average loss per reservation. The other models either send too many guests away to other hotels or leave too many rooms empty, so their average cost per booking is higher.

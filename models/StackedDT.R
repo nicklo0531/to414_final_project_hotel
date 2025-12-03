@@ -41,37 +41,67 @@ ann_model <- neuralnet(
   hidden   = c(3, 2)
 )
 
-# Probabilities for train/test (neuralnet needs the same columns as training)
 ann_train_prob <- as.numeric(predict(ann_model, df_train))
 ann_test_prob  <- as.numeric(predict(ann_model, df_test))
 
-## KNN (k = 5, use prob=TRUE to recover P(Y=1))
-train_y_fac <- factor(df_train$is_canceled, levels = c(0, 1))
-test_y_fac  <- factor(df_test$is_canceled,  levels = c(0, 1))
+## KNN (tune k, then use best k for probs)
 
+library(class)
+
+# Set up X / y for KNN specifically
+train_y <- factor(df_train$is_canceled, levels = c(0, 1))
+test_y  <- factor(df_test$is_canceled,  levels = c(0, 1))
+
+train_x <- df_train[, names(df_train) != "is_canceled", drop = FALSE]
+test_x  <- df_test[,  names(df_test)  != "is_canceled", drop = FALSE]
+
+# Sequence of k values to try
+ks <- seq(3, 31, 2)
+knn_tune_results <- data.frame(
+  k           = ks,
+  Accuracy    = NA_real_,
+  Specificity = NA_real_,
+  Sensitivity = NA_real_
+)
+
+# Tune KNN over k
+for (i in seq_along(ks)) {
+  pred_i <- knn(train = train_x, test = test_x, cl = train_y, k = ks[i])
+  pred_i <- factor(pred_i, levels = c("0", "1"))
+  
+  cm_i <- confusionMatrix(pred_i, test_y, positive = "1")
+  knn_tune_results$Accuracy[i]    <- cm_i$overall["Accuracy"]
+  knn_tune_results$Specificity[i] <- cm_i$byClass["Specificity"]
+  knn_tune_results$Sensitivity[i] <- cm_i$byClass["Sensitivity"]
+}
+
+# Pick k with the best specificity (we care about avoiding false positives)
+best_k_spec <- knn_tune_results$k[which.max(knn_tune_results$Specificity)]
+
+# Final KNN using best_k_spec, now with probabilities for stacking / cost matrix
 knn_pred_test <- knn(
-  train = X_train,
-  test  = X_test,
-  cl    = train_y_fac,
-  k     = 5,
+  train = train_x,
+  test  = test_x,
+  cl    = train_y,
+  k     = best_k_spec,
   prob  = TRUE
 )
+knn_prob_attr_test <- attr(knn_pred_test, "prob")
+knn_test_prob <- ifelse(knn_pred_test == "1", knn_prob_attr_test, 1 - knn_prob_attr_test)
 
-knn_prob_attr <- attr(knn_pred_test, "prob")
-knn_test_prob <- ifelse(knn_pred_test == "1", knn_prob_attr, 1 - knn_prob_attr)
-
-# For stacking, we also need train-side probs (KNN on train vs train)
+# Train-side probabilities (KNN on train vs train)
 knn_pred_train <- knn(
-  train = X_train,
-  test  = X_train,
-  cl    = train_y_fac,
-  k     = 5,
+  train = train_x,
+  test  = train_x,
+  cl    = train_y,
+  k     = best_k_spec,
   prob  = TRUE
 )
-knn_train_attr <- attr(knn_pred_train, "prob")
-knn_train_prob <- ifelse(knn_pred_train == "1", knn_train_attr, 1 - knn_train_attr)
+knn_prob_attr_train <- attr(knn_pred_train, "prob")
+knn_train_prob <- ifelse(knn_pred_train == "1", knn_prob_attr_train, 1 - knn_prob_attr_train)
 
-## Decision Tree (tuned rpart, similar to your writeup)
+
+## Decision Tree (tuned rpart)
 set.seed(12345)
 df_train_dt <- df_train
 df_test_dt  <- df_test
@@ -97,7 +127,7 @@ dt_model <- rpart(
 dt_train_prob <- predict(dt_model, df_train_dt, type = "prob")[, "1"]
 dt_test_prob  <- predict(dt_model, df_test_dt,  type = "prob")[, "1"]
 
-## Random Forest (ntree = 800 from your RF writeup)
+## Random Forest (ntree = 800 from RF writeup)
 set.seed(123)
 rf_model <- randomForest(
   as.factor(is_canceled) ~ .,
@@ -108,7 +138,7 @@ rf_model <- randomForest(
 rf_train_prob <- predict(rf_model, df_train, type = "prob")[, "1"]
 rf_test_prob  <- predict(rf_model, df_test,  type = "prob")[, "1"]
 
-## SVM (linear kernel, as chosen in your SVM writeup)
+## SVM (linear kernel, chosen in SVM writeup)
 set.seed(12345)
 df_train_svm <- df_train
 df_test_svm  <- df_test
@@ -137,12 +167,12 @@ svm_test_prob <- attr(
 ############################################
 
 stack_train <- data.frame(
-  log        = log_train_prob,
-  ann        = ann_train_prob,
-  knn        = knn_train_prob,
-  dt         = dt_train_prob,
-  rf         = rf_train_prob,
-  svm        = svm_train_prob,
+  log         = log_train_prob,
+  ann         = ann_train_prob,
+  knn         = knn_train_prob,
+  dt          = dt_train_prob,
+  rf          = rf_train_prob,
+  svm         = svm_train_prob,
   is_canceled = y_train
 )
 
@@ -162,9 +192,9 @@ stack_test_prob <- predict(stack_model, stack_test, type = "response")
 # 3. Cost matrix + threshold sweep for all models
 ############################################
 
-# Cost matrix: FPs are 5x worse than FNs
-C_FP <- 1200  # false positive: predict cancel, guest shows (overbook/walk)
-C_FN <- 500  # false negative: predict show, guest cancels (empty room)
+# Cost matrix: FPs are much more expensive than FNs
+C_FP <- 1200  # false positive: predict cancel, guest shows (walk/overbook)
+C_FN <- 500   # false negative: predict show, guest cancels (empty room)
 
 evaluate_at_threshold <- function(y_true, p_hat, threshold, C_FP, C_FN) {
   preds <- ifelse(p_hat >= threshold, 1, 0)
@@ -206,20 +236,118 @@ sweep_model <- function(y_true, p_hat, model_name,
 }
 
 results_all <- rbind(
-  sweep_model(y_test, log_test_prob,   "Logistic",            C_FP, C_FN),
-  sweep_model(y_test, ann_test_prob,   "ANN",                 C_FP, C_FN),
-  sweep_model(y_test, knn_test_prob,   "KNN",                 C_FP, C_FN),
-  sweep_model(y_test, dt_test_prob,    "Decision Tree",       C_FP, C_FN),
-  sweep_model(y_test, rf_test_prob,    "Random Forest",       C_FP, C_FN),
-  sweep_model(y_test, svm_test_prob,   "SVM (linear)",        C_FP, C_FN),
+  sweep_model(y_test, log_test_prob,   "Logistic",             C_FP, C_FN),
+  sweep_model(y_test, ann_test_prob,   "ANN",                  C_FP, C_FN),
+  sweep_model(y_test, knn_test_prob,   "KNN",                  C_FP, C_FN),
+  sweep_model(y_test, dt_test_prob,    "Decision Tree",        C_FP, C_FN),
+  sweep_model(y_test, rf_test_prob,    "Random Forest",        C_FP, C_FN),
+  sweep_model(y_test, svm_test_prob,   "SVM (linear)",         C_FP, C_FN),
   sweep_model(y_test, stack_test_prob, "Stacked (meta-logit)", C_FP, C_FN)
 )
 
-best_by_cost <- results_all %>%
+############################################
+# 4. Original no-FP logistic + simple baseline
+############################################
+
+## 4a. Original logistic regression (no false positives)
+##     Source your LogisticRegression.R, which finds the precision-max threshold
+
+source("models/LogisticRegression.R")  # assumes it creates cancel_pred_m1, metric_summary, y_test
+
+# Threshold that maximizes precision in the original LR (this should give 0 FPs)
+orig_thresh_no_fp <- metric_summary$Threshold[metric_summary$Metric == "Precision"]
+
+orig_preds <- ifelse(cancel_pred_m1 >= orig_thresh_no_fp, 1, 0)
+
+orig_cm <- confusionMatrix(
+  factor(orig_preds, levels = c(0, 1)),
+  factor(y_test,     levels = c(0, 1)),
+  positive = "1"
+)
+
+orig_FP <- sum(orig_preds == 1 & y_test == 0)
+orig_FN <- sum(orig_preds == 0 & y_test == 1)
+orig_cost <- C_FP * orig_FP + C_FN * orig_FN
+orig_avg_cost <- orig_cost / length(y_test)
+
+original_lr_row <- data.frame(
+  Threshold   = orig_thresh_no_fp,
+  Accuracy    = orig_cm$overall["Accuracy"],
+  Kappa       = orig_cm$overall["Kappa"],
+  Sensitivity = orig_cm$byClass["Sensitivity"],
+  Precision   = orig_cm$byClass["Pos Pred Value"],
+  Cost        = orig_cost,
+  AvgCost     = orig_avg_cost,
+  Model       = "Logistic (No False Positives)"
+)
+
+## 4b. Super simple baseline that never predicts a cancellation
+##     This basically says “everyone will show up”
+
+baseline_preds <- rep(0, length(y_test))
+
+baseline_cm <- confusionMatrix(
+  factor(baseline_preds, levels = c(0, 1)),
+  factor(y_test,          levels = c(0, 1)),
+  positive = "1"
+)
+
+baseline_FP <- 0
+baseline_FN <- sum(y_test == 1)
+baseline_cost <- C_FP * baseline_FP + C_FN * baseline_FN
+baseline_avg_cost <- baseline_cost / length(y_test)
+baseline_cancel_rate <- mean(y_test)  # percent of cancels in the original test split
+
+baseline_row <- data.frame(
+  Threshold   = NA_real_,
+  Accuracy    = baseline_cm$overall["Accuracy"],
+  Kappa       = baseline_cm$overall["Kappa"],
+  Sensitivity = baseline_cm$byClass["Sensitivity"],
+  Precision   = baseline_cm$byClass["Pos Pred Value"],
+  Cost        = baseline_cost,
+  AvgCost     = baseline_avg_cost,
+  Model       = "Baseline (No Model)"
+)
+
+## Combine everything and then get “best by cost” including the two new baselines
+
+results_all_full <- bind_rows(results_all, original_lr_row, baseline_row)
+
+best_by_cost <- results_all_full %>%
   group_by(Model) %>%
   slice_min(AvgCost, with_ties = FALSE) %>%
   ungroup()
 
-# So when you source this file, you can just look at:
-#   best_by_cost   -> best threshold + cost per model
-#   results_all    -> full grid over thresholds
+# Objects to look at after sourcing:
+#   results_all_full  -> all thresholds for the 6 base models + stacked
+#                        plus single rows for original LR no-FP and baseline
+#   best_by_cost      -> single “best” row per model (lowest AvgCost)
+
+library(ggplot2)
+
+plot_best_cost <- function() {
+  best_plot_df <- best_by_cost %>%
+    dplyr::mutate(
+      ThresholdLabel = ifelse(
+        is.na(Threshold),
+        "t = N/A",
+        paste0("t = ", round(Threshold, 2))
+      )
+    )
+  
+  print(
+    ggplot(best_plot_df,
+           aes(x = reorder(Model, AvgCost), y = AvgCost)) +
+      geom_col() +
+      geom_text(aes(label = ThresholdLabel),
+                hjust = -0.1, size = 3) +
+      coord_flip() +
+      labs(
+        title = "Best average cost per booking by model",
+        x     = "Model",
+        y     = "Average cost per reservation ($)"
+      ) +
+      ylim(0, max(best_plot_df$AvgCost) * 1.15) +
+      theme_minimal()
+  )
+}

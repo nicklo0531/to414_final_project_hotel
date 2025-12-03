@@ -2,6 +2,7 @@
 ## Logistic regression with a small stepwise feature selection and threshold search
 
 library(caret)
+library(ggplot2)
 
 # Read in the cleaned train and test files we made earlier
 df_train <- read.csv("data/hotel_train.csv")
@@ -69,8 +70,8 @@ backward_step_limited <- function(formula,
       cand_aic <- AIC(cand_model)
       # Only bother if AIC gets at least a tiny bit better
       if (cand_aic + min_improve < best_aic) {
-        best_aic  <- cand_aic
-        best_drop <- term
+        best_aic   <- cand_aic
+        best_drop  <- term
         best_model <- cand_model
       }
     }
@@ -146,6 +147,7 @@ metric_summary <- data.frame(
                 kappas[best_idx_safe(kappas)])
 )
 
+
 # Final 0/1 prediction using the cutoff that gives us the best precision
 cancel_bin_pred_m1 <- ifelse(cancel_pred_m1 >= best_threshold_prec, 1, 0)
 
@@ -155,5 +157,24 @@ cm_log <- confusionMatrix(
   positive = "1"
 )
 
+cm_log
+
 # Keep the raw probabilities around in case we want stacking or cost stuff later
 log_pred <- cancel_pred_m1
+
+metric_plot_df <- data.frame(
+  Threshold = rep(thresholds, 2),
+  Value     = c(precisions, sensitivities),
+  Metric    = rep(c("Precision", "Sensitivity"), each = length(thresholds))
+)
+
+metric_plot <- ggplot(metric_plot_df,
+                      aes(x = Threshold, y = Value, color = Metric)) +
+  geom_line() +
+  labs(
+    title = "Precision vs Sensitivity across thresholds",
+    x = "Threshold",
+    y = "Metric value"
+  ) +
+  theme_minimal()
+
