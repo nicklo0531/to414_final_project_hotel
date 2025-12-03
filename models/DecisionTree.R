@@ -45,3 +45,8 @@ comparison <- data.frame(
   Accuracy = c(cm_dt$overall["Accuracy"], cm_c50$overall["Accuracy"]),
   AUC = c(auc_dt, auc_c50)
 )
+
+comparison
+cm_c50
+rpart.plot(tuned_model)
+

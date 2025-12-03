@@ -11,8 +11,9 @@ selected_hotels <- hotel[hotel$hotel == "City Hotel - Ahmedabad", ]
 
 # Drop uninformative columns
 drop_cols <- c("company", "hotel", "arrival_date_year",
-               "reservation_status_date", "reservation_status")
+               "reservation_status_date", "reservation_status", "assigned_room_type")
 selected_hotels[drop_cols] <- NULL
+levels(df_train$deposit_type) <- c("a", "b")
 
 # Remove NAs
 clean_hotels <- na.omit(selected_hotels)

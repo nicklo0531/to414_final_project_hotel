@@ -66,3 +66,7 @@ rf_cm <- confusionMatrix(
   factor(df_test$is_canceled, levels = c(0,1)),
   positive = "1"
 )
+
+
+rf_cm
+

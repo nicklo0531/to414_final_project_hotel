@@ -84,6 +84,7 @@ cm_log
 metric_summary
 metric_plot
 ```
+
 ### KNN
 
 ```{r knn_results}
@@ -92,6 +93,7 @@ source("models/KNN.R")
 # Confusion matrix
 cm_knn_acc
 ```
+
 ### ANN
 ```{r ann_results}
 source("models/ANN.R")
@@ -110,30 +112,19 @@ comparison_svm
 ```
 
 
-
-
-
-
-
-
-
-
 ### Decision Tree
 
-
-
-
-
-
-
-
+```{r}
+source("models/DecisionTree.R")
+```
 
 
 
 ### Random Forest
 
-
-
+```{r}
+source("models/RandomForest.R")
+```
 
 
 ## Step 6: Combine Models
