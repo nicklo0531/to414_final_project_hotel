@@ -1,0 +1,15 @@
+---
+title: "data_cleaning_splitting"
+output: html_document
+---
+
+
+```{r}
+hotel <- read.csv("hotel_bookings_updated_2024.csv")
+
+```
+
+
+
+
+
