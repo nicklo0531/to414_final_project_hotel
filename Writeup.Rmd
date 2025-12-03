@@ -7,7 +7,7 @@ output:
     toc_collapsed: true
     toc_depth: 3
     highlight: tango
-    theme: sandstone
+    theme: lumen
     code_folding: hide
 ---
 
@@ -17,16 +17,30 @@ knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
 ```
 
+<style>
+#watermark-logo {
+  position: fixed;
+  bottom: 25px;
+  left: 25px;
+  width: 100px;
+  opacity: 1;
+  z-index: 9999;
+}
+</style>
+
+<img id="watermark-logo" src="images/logo.png">
+
+![](images/crowne.jpeg)
+
 link to dataset: https://www.kaggle.com/datasets/kundanbedmutha/hotel-booking-reservation
 
 # Step 0 - Why?
 
+We have been hired by IHG, a global Hotel and Resorts brand, to help the Management of the City Hotel Ahmedabad, India minimize revenue loss through late cancellations that leave rooms empty. 
 
-image
+We act as Consultants and the Management has provided us with a data-set of 4810 bookings with 38 variables and final outcome (cancellation or not).
 
-explain hotel cancellation
-
-allow overbooking to minimize damage
+Building accurate models will allow the Hotel to predict how many customers might cancel, allowing overbooking to minimize revenue loss. We will also propose steps for the Management to implement our analysis in their operative policy.
 
 
 
