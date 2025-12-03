@@ -89,7 +89,7 @@ metric_summary
 source("models/KNN.R")
 
 # Confusion matrix
-cm_knn
+cm_knn_acc
 ```
 ### ANN
 ```{r ann_results}
