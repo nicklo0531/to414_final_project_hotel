@@ -5,30 +5,63 @@ output: html_document
 
 ## Step 1 - Load Data
 ```{r}
-hotel <- read.csv("hotel_bookings_updated_2024.csv")
+hotel <- read.csv("hotel_bookings_updated_2024.csv", stringsAsFactors = TRUE)
 ```
 
 ## Step 2 Clean Data
 ```{r}
 # Select Ahmedabad because it has the largest sample of hotels in our dataset.
 selected_hotels <- hotel[hotel$hotel == "City Hotel - Ahmedabad", ]
-dim(selected_hotels)
 # Company does not matter because it is all coming from the same hotel. Same for hotel.
 selected_hotels$company <- NULL
 selected_hotels$hotel <- NULL
+# Remove year since they are all in 2024
+selected_hotels$arrival_date_year <- NULL
+selected_hotels$reservation_status_date <- NULL
+# Remove status since it provides no value to predicting
+selected_hotels$reservation_status <- NULL
+# Remove NAs
 clean_hotels <- na.omit(selected_hotels)
+# Check that there is no NAs
 any(is.na(clean_hotels))
 ```
 
+```{r}
+# One-hot encoding
+hotels_dummy <- as.data.frame(model.matrix(~ . -1, data = clean_hotels))
+```
+
+```{r}
+# Scaling
+minmax <- function(x){
+  (x-min(x))/(max(x)-min(x))
+}
+hotels_scaled <- as.data.frame(lapply(hotels_dummy, minmax))
+```
+
+```{r}
+# Output the final dataframe
+df <- hotels_scaled
+write.csv(df, "hotel_cleaned.csv", row.names = FALSE)
+```
+
+We did a 50% training - 50% testing split because of how much data we are working with and for run-time sake. For the stacked model, we split into 70/30.
 
 
 
+## Split Data
 
+```{r source_splits}
+# Use a 6040 split since we have plenty data
+trainprop <- 0.6
+set.seed(12345)
+train_rows <- sample(1:nrow(df), trainprop*nrow(df))
+df_train <- df[train_rows, ]
+df_test <- df[-train_rows, ]
 
+cat("Number of rows in train: ", nrow(df_train), "\n")
+cat("Number of rows in test: ", nrow(df_test), "\n")
 
-
-
-
-
-
-
+write.csv(df_train, "hotel_train.csv", row.names = FALSE)
+write.csv(df_test, "hotel_test.csv", row.names = FALSE)
+```

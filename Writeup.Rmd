@@ -1,0 +1,139 @@
+---
+title: "Writeup"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    highlight: tango
+    theme: cerulean
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+# Step 0 - Why?
+
+
+
+
+explain hotel cancellation
+
+allow overbooking to minimize damage
+
+
+
+```{r}
+df <- read.csv("data/hotel_cleaned.csv")
+library(ggplot2)
+
+ggplot(df, aes(x = is_canceled)) +
+  geom_bar() +
+  labs(title = "Distribution of Cancellation",
+       x = "Cancellation (0 = No, 1 = Yes)",
+       y = "Count")
+```
+
+There is quite a high cancellation rate. Thus, it is worth investigating how much we should allow overbooking.
+
+# Step 1&2&3: Load, Clean, and Split Data
+
+Refer to the *data_cleaning_splitting.Rmd* under the data folder.
+
+
+
+## Step 4&5: Create, Predict Models
+
+source("...")
+
+### Logistic Regression
+
+
+
+
+
+
+
+
+### KNN
+
+
+
+
+
+
+
+
+### ANN
+
+
+
+
+
+
+
+
+
+
+
+### SVM
+
+
+
+
+
+
+
+
+
+
+
+### Decision Tree
+
+
+
+
+
+
+
+
+
+
+
+### Random Forest
+
+
+
+
+
+## Step 6: Combine Models
+
+
+with cost matrix
+
+without cost matrix
+
+
+
+
+
+
+## Step 7: Final Prediction
+
+
+
+
+## Step 8: Model Evaluation
+
+
+
+
+## Step 9: Implications, Limitations, and Further Steps
+
+
+
