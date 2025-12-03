@@ -3,3 +3,24 @@ title: "LogisticRegression"
 output: html_document
 ---
 
+```{r logistic_regression_results}
+setwd("..")
+
+# Run the logistic regression script 
+source("models/LogisticRegression.R")
+
+# Show the full confusion matrix
+cm_log
+
+# Show key metrics 
+cm_log$byClass["Pos Pred Value"]   
+cm_log$byClass["Sensitivity"]      
+cm_log$byClass["Specificity"]      
+metric_summary
+
+# Kappa and Accuracy values are both maximized with a threshold of .01
+# Sensitivity is maximized at a threshold of .01 (no surprise there)
+# Precision is maxed out with a threshold of .96
+
+# This is our baseline model if we said "NO FALSE POSITIVES" like our lives relied on it.
+``` 
