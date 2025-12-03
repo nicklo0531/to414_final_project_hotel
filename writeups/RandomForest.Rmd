@@ -10,6 +10,55 @@ df_train <- read.csv("../data/hotel_train.csv")
 df_test <- read.csv("../data/hotel_test.csv")
 ```
 
+
+```{r}
+ntree_list <- seq(100, 1000, by = 100)
+
+# table to store results
+results <- data.frame(
+  ntree = ntree_list,
+  accuracy = NA,
+  sensitivity = NA,
+  precision = NA
+)
+
+set.seed(123)
+
+for (i in seq_along(ntree_list)) {
+  
+  nt <- ntree_list[i]
+  
+  # train model
+  rf_temp <- randomForest(
+    type = "classification",
+    as.factor(is_canceled) ~ .,
+    data = df_train,
+    ntree = nt
+  )
+  
+  # predictions
+  temp_pred <- predict(rf_temp, df_test)
+  
+  # confusion matrix
+  cm <- confusionMatrix(
+    as.factor(temp_pred),
+    as.factor(df_test$is_canceled),
+    positive = "1"
+  )
+  
+  # extract metrics
+  results$accuracy[i]    <- cm$overall["Accuracy"]
+  results$sensitivity[i] <- cm$byClass["Sensitivity"]
+  results$precision[i]   <- cm$byClass["Precision"]
+}
+
+# show results
+results
+```
+
+Chose ntree=500 since it maximizes sensitivity, which aligns to our goal of minimizing false negatives.
+
+
 ```{r}
 rf_model <- randomForest(type='classification', as.factor(is_canceled) ~ ., data = df_train, ntree=500, weights=NULL)
 rf_model
@@ -27,3 +76,8 @@ rf_pred <- predict(rf_model, df_test)
 rf_cm <- confusionMatrix(as.factor(rf_pred), as.factor(df_test$is_canceled), positive = "1")
 rf_cm
 ```
+
+
+
+
+
