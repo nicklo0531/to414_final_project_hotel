@@ -56,11 +56,11 @@ for (i in seq_along(ntree_list)) {
 results
 ```
 
-Chose ntree=500 since it maximizes sensitivity, which aligns to our goal of minimizing false negatives.
+Chose ntree=800 since it maximizes precision and accuracy, which aligns to our goal of minimizing false positives.
 
 
 ```{r}
-rf_model <- randomForest(type='classification', as.factor(is_canceled) ~ ., data = df_train, ntree=500, weights=NULL)
+rf_model <- randomForest(type='classification', as.factor(is_canceled) ~ ., data = df_train, ntree=800, weights=NULL)
 rf_model
 ```
 
