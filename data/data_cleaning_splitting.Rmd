@@ -6,8 +6,27 @@ output: html_document
 
 ```{r}
 hotel <- read.csv("hotel_bookings_updated_2024.csv")
+selected_hotels <- hotel[hotel$hotel == "City Hotel - Ahmedabad", ]
+selected_hotels$company <- NULL
+```
+
+```{r}
+dim(selected_hotels)
 
 ```
+
+```{r}
+clean_hotels <- na.omit(selected_hotels)
+any(is.na(clean_hotels))
+```
+
+
+
+
+
+
+
+
 
 
 
