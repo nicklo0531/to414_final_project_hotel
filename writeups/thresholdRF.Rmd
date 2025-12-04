@@ -1,0 +1,124 @@
+---
+title: "thresholdRF"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(randomForest)
+
+# -------------------------------------------------------------------
+# Average cost threshold search
+# -------------------------------------------------------------------
+
+setwd("../")
+source("data/data_cleaning_splitting.R")
+
+# -------------------------------------------------------------------
+# 1. Train or load the RF model with ntree = 900 and nodesize = 5
+# -------------------------------------------------------------------
+rf_900_5 <- randomForest(
+  as.factor(is_canceled) ~ .,
+  data = df_train,
+  ntree = 900,
+  nodesize = 5
+)
+
+# Predict probabilities on test
+rf_probs <- predict(rf_900_5, df_test, type = "prob")[, "1"]
+
+# -------------------------------------------------------------------
+# 2. Define cost matrix components
+# -------------------------------------------------------------------
+C_FP <- 1200
+C_FN <- 500
+
+
+thresholds <- seq(0.01, 0.99, by = 0.01)
+
+avg_results <- data.frame(
+  threshold = thresholds,
+  FP = NA,
+  FN = NA,
+  AvgCost = NA
+)
+
+for (i in seq_along(thresholds)) {
+  t <- thresholds[i]
+  
+  preds_t <- ifelse(rf_probs >= t, 1, 0)
+  
+  FP <- sum(preds_t == 1 & df_test$is_canceled == 0)
+  FN <- sum(preds_t == 0 & df_test$is_canceled == 1)
+  
+  total_cost <- C_FP * FP + C_FN * FN
+  avg_cost <- total_cost / 1940
+  
+  avg_results$FP[i] <- FP
+  avg_results$FN[i] <- FN
+  avg_results$AvgCost[i] <- avg_cost
+}
+
+# -------------------------------------------------------------------
+# Best threshold based on minimum average cost
+# -------------------------------------------------------------------
+best_avg <- avg_results %>% filter(AvgCost == min(AvgCost))
+best_avg_threshold <- best_avg$threshold[1]
+
+best_avg
+best_avg_threshold
+
+# -------------------------------------------------------------------
+# Plot AvgCost vs Threshold
+# -------------------------------------------------------------------
+min_cost <- best_avg$AvgCost[1]
+best_t   <- best_avg$threshold[1]
+
+gg_avg_cost <- ggplot(avg_results, aes(x = threshold, y = AvgCost)) +
+  geom_line(size = 1.2, color = "darkgreen") +
+  geom_point(data = best_avg, aes(x = threshold, y = AvgCost),
+             color = "red", size = 5) +
+  geom_hline(yintercept = min_cost, linetype = "dashed", color = "blue") +
+  geom_vline(xintercept = best_t, linetype = "dashed", color = "blue") +
+  annotate("text",
+           x = 0,
+           y = min_cost,
+           label = paste0(round(min_cost, 2)),
+           vjust = -1,
+           color = "blue",
+           fontface = "bold") +
+  annotate("text",
+           x = best_t+0.05,
+           y = 0,
+           label = paste0(best_t),
+           vjust = -0.5,
+           color = "blue",
+           fontface = "bold") +
+  theme_minimal() +
+  labs(
+    title = "Average Cost per Booking vs Threshold (RF 900 / 5)",
+    x = "Threshold",
+    y = "Average Cost per Booking"
+  ) +
+  scale_y_continuous(limits = c(0, max(avg_results$AvgCost)))
+
+print(gg_avg_cost)
+
+# -------------------------------------------------------------------
+# Confusion matrix for optimal AvgCost threshold
+# -------------------------------------------------------------------
+final_avg_preds <- ifelse(rf_probs >= best_avg_threshold, 1, 0)
+
+final_avg_cm <- confusionMatrix(
+  factor(final_avg_preds, levels = c(0, 1)),
+  factor(df_test$is_canceled, levels = c(0, 1)),
+  positive = "1"
+)
+
+final_avg_cm
+
+
+```
+

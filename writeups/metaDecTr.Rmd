@@ -120,6 +120,51 @@ rpart.plot(stack_dt)
 stack_cm
 stack_auc
 
+
+# Define cost matrix
+cost_TN <- 0
+cost_FN <- 500
+cost_FP <- 1200
+cost_TP <- 0
+cost_matrix <- matrix(c(cost_TN, cost_FP,
+                        cost_FN, cost_TP),   
+                      nrow = 2, byrow = TRUE)
+
+stack_dt_cost <- rpart(
+  is_canceled ~ .,
+  data    = stack_train,
+  method  = "class",
+  parms   = list(loss = cost_matrix),
+  control = rpart.control(cp = 0.01)
+)
+
+# Predict on test set
+stack_pred_class_cost <- predict(stack_dt_cost, stack_test, type = "class")
+stack_pred_prob_cost  <- predict(stack_dt_cost, stack_test, type = "prob")[, "1"]
+
+# Evaluate
+stack_cm_cost  <- confusionMatrix(stack_pred_class_cost, y_test)
+stack_roc_cost <- pROC::roc(y_test, stack_pred_prob_cost)
+stack_auc_cost <- pROC::auc(stack_roc_cost)
+
+# Plot tree
+rpart.plot(stack_dt_cost)
+
+# Output metrics
+stack_cm_cost
+stack_auc_cost
+
+thresholds <- seq(0.01, 0.99, by = 0.01)
+costs <- sapply(thresholds, function(t) {
+  preds <- ifelse(stack_pred_prob >= t, 1, 0)
+  FP <- sum(preds == 1 & y_test == 0)
+  FN <- sum(preds == 0 & y_test == 1)
+  cost_FP*FP + cost_FN*FN
+})
+best_threshold <- thresholds[which.min(costs)]
+
+stack_pred_cost <- ifelse(stack_pred_prob >= best_threshold, 1, 0)
+confusionMatrix(factor(stack_pred_cost, levels=c(0,1)), y_test, positive="1")
 ```
 
 

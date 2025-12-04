@@ -3,7 +3,7 @@ library(caret)
 library(ggplot2)
 
 # Optimize ntree over a sequence
-ntree_list <- seq(100, 1000, by = 100)
+ntree_list <- seq(100, 2000, by = 100)
 results <- data.frame(
   ntree = ntree_list,
   Accuracy = NA,
@@ -56,7 +56,7 @@ print(rf_opt_plot)
 rf_model <- randomForest(
   is_canceled ~ .,
   data = df_train,
-  ntree = 800
+  ntree = 500
 )
 
 # Save model and probabilities for stacking
