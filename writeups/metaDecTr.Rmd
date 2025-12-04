@@ -36,6 +36,13 @@ library(class)
 
 setwd("../")
 source("data/data_cleaning_splitting.R")
+source("models/cost_optimized_RF.R")
+best_param
+final_cm
+```
+
+
+```{r}
 source("models/LogisticRegression.R")
 source("models/KNN.R")
 source("models/DecisionTree.R")

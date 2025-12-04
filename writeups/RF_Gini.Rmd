@@ -1,0 +1,65 @@
+---
+title: "RF_Gini"
+output: html_document
+---
+
+```{r}
+# -------------------------------
+# Packages
+# -------------------------------
+library(randomForest)
+library(ggplot2)
+library(dplyr)
+library(permimp)  # for permutation importance (fast)
+library(rfPermute)
+
+set.seed(12345)
+
+setwd("../")
+source("data/data_cleaning_splitting.R")
+
+df_train$deposit_type <- relevel(df_train$deposit_type, ref = "A")
+levels(df_train$deposit_type)[levels(df_train$deposit_type) == "Non Refund"] <- "A"
+
+rf_final <- randomForest(
+  as.factor(is_canceled) ~ .,
+  data = df_train,
+  ntree = 900,
+  nodesize = 5,
+  importance = TRUE
+)
+
+gini_imp <- importance(rf_final, type = 2)  # MeanDecreaseGini
+gini_df <- data.frame(
+  Variable = rownames(gini_imp),
+  Gini = gini_imp[, "MeanDecreaseGini"]
+) %>%
+  arrange(desc(Gini))
+
+gini_plot <- ggplot(gini_df[1:15,], aes(x = reorder(Variable, Gini), y = Gini)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Top 15 Predictors (Gini Importance)",
+    x = "Predictor",
+    y = "Mean Decrease in Gini"
+  ) +
+  theme_minimal(base_size = 13)
+
+print(gini_plot)
+
+library(ranger)
+library(vip)
+
+rf_ranger <- ranger(
+  is_canceled ~ .,
+  data = df_train,
+  num.trees = 900,
+  min.node.size = 5,
+  importance = "permutation",
+  probability = TRUE
+)
+
+vip(rf_ranger, num_features = 15)
+```
+
