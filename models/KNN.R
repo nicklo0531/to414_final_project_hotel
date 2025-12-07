@@ -35,6 +35,7 @@ for (i in seq_along(ks)) {
 # Selecting the K with the maximum specificity
 # Instead of choosing K by accuracy, for our business goal we will choose the K with the highest specificity. This is because false positives, predicting cancel but the guest ends up showing up, are very expensive. We want a model that can correctly identify non-cancellations.
 best_k <- results$k[which.max(results$Specificity)]
+print(best_k)
 
 # Fit final KNN with best K and get predictions
 # We now refit KNN using the chosen K. We request "prob= TRUE" so that we can later recover probabilities. "pred_knn" will be the final class prediction (0 or 1) for every reservation in the test set
@@ -69,4 +70,4 @@ saveRDS(knn_test_prob,  "RDS/knn_test_prob.rds")
 # Compute final confusion matrix for reporting
 # We build the final confusion matrix for KNN using the chosen K. It will provide information on accuracy, sensitivity, specificity, precision, kappa and other variables. 
 cm_knn <- confusionMatrix(pred_knn, test_y, positive = "1")
-cm_knn
+print(cm_knn)

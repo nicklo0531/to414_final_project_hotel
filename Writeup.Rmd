@@ -15,6 +15,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
 ```
 
 <style>
@@ -32,7 +33,7 @@ knitr::opts_chunk$set(message = FALSE)
 
 ![](images/crowne.jpeg)
 
-link to dataset: https://www.kaggle.com/datasets/kundanbedmutha/hotel-booking-reservation
+[Hotel Booking Reservation Dataset](https://www.kaggle.com/datasets/kundanbedmutha/hotel-booking-reservation)
 
 # Step 0 - Why?
 
@@ -45,25 +46,13 @@ We'll then build a stacked meta model (second layer decision tree) that uses the
 
 We will evaluate the differences between all individual models and the stacked model in classic statistical metrics and by computing the expected net financial impact of model implementation. From this analysis, we are able to provide management with a recommendation of which model to implement and how to do so. 
 
-
-```{r}
-df <- read.csv("data/hotel_cleaned.csv")
-library(ggplot2)
-
-ggplot(df, aes(x = is_canceled)) +
-  geom_bar() +
-  labs(title = "Distribution of Cancellation",
-       x = "Cancellation (0 = No, 1 = Yes)",
-       y = "Count")
-```
-
 There is quite a high cancellation rate. Thus, it is worth investigating how much we should allow overbooking.
 
 # Step 1&2&3: Load, Clean, and Split Data
 
 Refer to the *data_cleaning_splitting.Rmd* under the data folder.
 
-```{r}
+```{r data}
 source("data/data_cleaning_splitting.R")
 ```
 
@@ -74,43 +63,28 @@ source("data/data_cleaning_splitting.R")
 
 ```{r logistic_regression_results}
 source("models/LogisticRegression.R")
-
-# Confusion matrix and metric summary
-cm_log
-metric_summary
-metric_plot
 ```
 
 ### KNN
 
 ```{r knn_results}
 source("models/KNN.R")
-
-# Confusion matrix
-cm_knn_acc
 ```
 
 ### ANN
 ```{r ann_results}
 source("models/ANN.R")
-
-# Confusion matrix
-ann_cm
 ```
 
 ### SVM
 ```{r svm_results}
 source("models/SVM.R")
-
-# Show linear kernel (chosen for stacking) and comparison table
-svm_results[["linear"]]
-comparison_svm
 ```
 
 
 ### Decision Tree
 
-```{r}
+```{r dt_results}
 source("models/DecisionTree.R")
 ```
 
@@ -118,31 +92,22 @@ source("models/DecisionTree.R")
 
 ### Random Forest
 
-```{r}
+```{r rf_results}
 source("models/RandomForest.R")
 ```
 
 
 ## Step 6: Combine Models
 
-```{r stacked_cost_matrix, cache=TRUE}
-source("models/StackedDT.R")
-best_by_cost
-plot_best_cost()
+
+```{r stacked_dt, cache=FALSE}
+source("models/metaDT.R")
 ```
 
-
-
-```{r}
-source("data/data_cleaning_splitting.R") 
-source("models/LogisticRegression.R") 
-source("models/KNN.R")                  # produces knn_train_prob & knn_test_prob
-source("models/DecisionTree.R")        # produces c50_model, pred_c50_prob
-source("models/RandomForest.R")        # produces rf_train_prob & rf_test_prob
-source("models/SVM.R")                  # produces svm_train_prob & svm_test_prob
-source("models/ANN.R")           # produces ann_train_prob & ann_test_prob
-source("models/metaDecTr.R")
+```{r stacked_lr, cache=FALSE}
+source("models/StackedLR.R")
 ```
+
 
 Given that giving someone a room at a different hotel plus compensation is about twice as expensive as an empty $500 room, the Random Forest with threshold 0.55 is the cheapest policy: it creates the lowest average loss per reservation. The other models either send too many guests away to other hotels or leave too many rooms empty, so their average cost per booking is higher.
 
@@ -153,12 +118,7 @@ with cost matrix (?)
 without cost matrix (??)
 
 
-
-
-
-
 ## Step 7: Final Prediction
-
 
 
 
@@ -166,9 +126,8 @@ without cost matrix (??)
 
 
 
-
 ## Step 9: Implications, Limitations, and Further Steps
 
 Limitations: Did not explore financial impact by having a policy that 
 
-Dynamic 
+Dynamic

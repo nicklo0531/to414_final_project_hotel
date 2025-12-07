@@ -34,8 +34,6 @@ X_test  <- hotels_dummy[-train_idx, ]
 y_train <- y[train_idx]
 y_test  <- y[-train_idx]
 
-
-
 # Scale using training set statistics
 minmax <- function(x) {
   rng <- range(x, na.rm = TRUE)
@@ -66,9 +64,13 @@ df_test  <- cbind(is_canceled = y_test, X_test_scaled)
 df_train$is_canceled <- factor(df_train$is_canceled, levels = c(0, 1))
 df_test$is_canceled  <- factor(df_test$is_canceled,  levels = c(0, 1))
 
-if ("deposit_type" %in% names(df_train)) {
-  df_train <- df_train %>%
-    mutate(deposit_type = recode(deposit_type,
-                                 "refundable" = "a",
-                                 "non-refundable" = "b"))
-}
+
+library(ggplot2)
+
+print(
+  ggplot(df_train, aes(x = is_canceled)) +
+  geom_bar() +
+  labs(title = "Distribution of Cancellation",
+       x = "Cancellation (0 = No, 1 = Yes)",
+       y = "Count")
+)

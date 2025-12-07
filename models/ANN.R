@@ -31,7 +31,7 @@ ann_cm <- confusionMatrix(
   factor(df_test$is_canceled, levels = c(0,1)), 
   positive = "1"
 )
-ann_cm
+print(ann_cm)
 
 # Optional: sweep thresholds to find optimal precision / sensitivity
 thresholds <- seq(0.01, 0.99, by = 0.01)
@@ -56,7 +56,8 @@ metric_plot_df <- data.frame(
   Metric    = rep(c("Precision", "Sensitivity"), each = length(thresholds))
 )
 
-ggplot(metric_plot_df, aes(x = Threshold, y = Value, color = Metric)) +
+print(
+  ggplot(metric_plot_df, aes(x = Threshold, y = Value, color = Metric)) +
   geom_line(size = 1.2) +
   labs(
     title = "Precision vs Sensitivity across thresholds",
@@ -64,3 +65,4 @@ ggplot(metric_plot_df, aes(x = Threshold, y = Value, color = Metric)) +
     y = "Metric Value"
   ) +
   theme_minimal()
+  )

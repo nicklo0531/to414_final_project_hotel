@@ -1,9 +1,10 @@
 library(randomForest)
 library(caret)
 library(ggplot2)
+library(reshape2)
 
 # Optimize ntree over a sequence
-ntree_list <- seq(100, 2000, by = 100)
+ntree_list <- seq(100, 800, by = 100)
 results <- data.frame(
   ntree = ntree_list,
   Accuracy = NA,
@@ -11,7 +12,7 @@ results <- data.frame(
   Precision = NA
 )
 
-set.seed(123)
+set.seed(12345)
 
 for (i in seq_along(ntree_list)) {
   nt <- ntree_list[i]
@@ -36,9 +37,9 @@ for (i in seq_along(ntree_list)) {
 }
 
 # Plot optimization process
-results_long <- reshape2::melt(results, id.vars = "ntree",
-                               variable.name = "Metric",
-                               value.name = "Value")
+results_long <- melt(results, id.vars = "ntree",
+                     variable.name = "Metric",
+                     value.name = "Value")
 
 rf_opt_plot <- ggplot(results_long, aes(x = ntree, y = Value, color = Metric)) +
   geom_line(size = 1.2) +
@@ -49,14 +50,16 @@ rf_opt_plot <- ggplot(results_long, aes(x = ntree, y = Value, color = Metric)) +
        y = "Metric Value") +
   scale_color_brewer(palette = "Set1")
 
-# Print the plot (will work when sourced in main Rmd)
 print(rf_opt_plot)
 
-# Train final RF model
+# Choose final ntree dynamically (example: best Accuracy)
+final_ntree <- results$ntree[which.max(results$Accuracy)]
+final_ntree <- 500
+# Train final RF model with chosen ntree
 rf_model <- randomForest(
   is_canceled ~ .,
   data = df_train,
-  ntree = 500
+  ntree = final_ntree
 )
 
 # Save model and probabilities for stacking
@@ -75,5 +78,6 @@ rf_cm <- confusionMatrix(
   factor(df_test$is_canceled, levels = c(0,1)),
   positive = "1"
 )
-rf_cm
 
+print(paste("Final ntree used:", final_ntree))
+print(rf_cm)

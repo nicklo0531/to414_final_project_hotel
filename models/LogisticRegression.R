@@ -70,9 +70,8 @@ backward_step_limited <- function(formula, data, family = binomial(),
 # Fit logistic regression with limited backward stepwise
 m1 <- backward_step_limited(is_canceled ~ ., data = df_train, family = binomial())
 
-# --------------------------
+
 # Compute train & test probabilities for stacking
-# --------------------------
 log_train_prob <- predict(m1, df_train, type = "response")  # train-side
 log_test_prob  <- predict(m1, df_test, type = "response")   # test-side
 
@@ -80,9 +79,7 @@ log_test_prob  <- predict(m1, df_test, type = "response")   # test-side
 saveRDS(log_train_prob, "RDS/log_train_prob.rds")
 saveRDS(log_test_prob,  "RDS/log_test_prob.rds")
 
-# --------------------------
 # Threshold sweep for evaluation
-# --------------------------
 thresholds <- seq(0.01, 0.99, by = 0.01)
 precisions <- sensitivities <- accuracies <- kappas <- numeric(length(thresholds))
 y_test <- df_test$is_canceled
@@ -121,8 +118,8 @@ metric_plot_df <- data.frame(
   Metric    = rep(c("Precision", "Sensitivity"), each = length(thresholds))
 )
 
-ggplot(metric_plot_df, aes(x = Threshold, y = Value, color = Metric)) +
+print(ggplot(metric_plot_df, aes(x = Threshold, y = Value, color = Metric)) +
   geom_line() +
   labs(title = "Precision vs Sensitivity across thresholds",
        x = "Threshold", y = "Metric value") +
-  theme_minimal()
+  theme_minimal())

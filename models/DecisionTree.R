@@ -67,6 +67,6 @@ comparison <- data.frame(
   AUC      = c(auc_rpart, auc_c50)
 )
 
-comparison
-cm_c50
+print(comparison)
+print(cm_c50)
 rpart.plot(tuned_model)

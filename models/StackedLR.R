@@ -1,170 +1,7 @@
-## StackedCostMatrix.R
-## Build 6 base models, stack them, and apply a cost matrix
-
 library(caret)
-library(neuralnet)
-library(randomForest)
-library(e1071)
-library(class)
-library(rpart)
-library(pROC)
 library(dplyr)
+library(ggplot2)
 
-# Load train/test data from the shared preprocessed files
-df_train <- read.csv("data/hotel_train.csv")
-df_test  <- read.csv("data/hotel_test.csv")
-
-y_train <- df_train$is_canceled
-y_test  <- df_test$is_canceled
-
-X_train <- df_train[, !(names(df_train) %in% "is_canceled"), drop = FALSE]
-X_test  <- df_test[,  !(names(df_test)  %in% "is_canceled"), drop = FALSE]
-
-############################################
-# 1. Base models: probabilities on train + test
-############################################
-
-## Logistic regression (simple full model for stacking)
-log_model <- glm(is_canceled ~ ., data = df_train, family = "binomial")
-log_train_prob <- predict(log_model, df_train, type = "response")
-log_test_prob  <- predict(log_model, df_test,  type = "response")
-
-## ANN (same idea as your ANN writeup, but also get train preds)
-set.seed(12345)
-df_train_small <- df_train[sample(nrow(df_train), size = 0.3 * nrow(df_train)), ]
-
-ann_model <- neuralnet(
-  is_canceled ~ .,
-  data     = df_train_small,
-  lifesign = "minimal",
-  stepmax  = 1e6,
-  hidden   = c(3, 2)
-)
-
-ann_train_prob <- as.numeric(predict(ann_model, df_train))
-ann_test_prob  <- as.numeric(predict(ann_model, df_test))
-
-## KNN (tune k, then use best k for probs)
-
-library(class)
-
-# Set up X / y for KNN specifically
-train_y <- factor(df_train$is_canceled, levels = c(0, 1))
-test_y  <- factor(df_test$is_canceled,  levels = c(0, 1))
-
-train_x <- df_train[, names(df_train) != "is_canceled", drop = FALSE]
-test_x  <- df_test[,  names(df_test)  != "is_canceled", drop = FALSE]
-
-# Sequence of k values to try
-ks <- seq(3, 31, 2)
-knn_tune_results <- data.frame(
-  k           = ks,
-  Accuracy    = NA_real_,
-  Specificity = NA_real_,
-  Sensitivity = NA_real_
-)
-
-# Tune KNN over k
-for (i in seq_along(ks)) {
-  pred_i <- knn(train = train_x, test = test_x, cl = train_y, k = ks[i])
-  pred_i <- factor(pred_i, levels = c("0", "1"))
-  
-  cm_i <- confusionMatrix(pred_i, test_y, positive = "1")
-  knn_tune_results$Accuracy[i]    <- cm_i$overall["Accuracy"]
-  knn_tune_results$Specificity[i] <- cm_i$byClass["Specificity"]
-  knn_tune_results$Sensitivity[i] <- cm_i$byClass["Sensitivity"]
-}
-
-# Pick k with the best specificity (we care about avoiding false positives)
-best_k_spec <- knn_tune_results$k[which.max(knn_tune_results$Specificity)]
-
-# Final KNN using best_k_spec, now with probabilities for stacking / cost matrix
-knn_pred_test <- knn(
-  train = train_x,
-  test  = test_x,
-  cl    = train_y,
-  k     = best_k_spec,
-  prob  = TRUE
-)
-knn_prob_attr_test <- attr(knn_pred_test, "prob")
-knn_test_prob <- ifelse(knn_pred_test == "1", knn_prob_attr_test, 1 - knn_prob_attr_test)
-
-# Train-side probabilities (KNN on train vs train)
-knn_pred_train <- knn(
-  train = train_x,
-  test  = train_x,
-  cl    = train_y,
-  k     = best_k_spec,
-  prob  = TRUE
-)
-knn_prob_attr_train <- attr(knn_pred_train, "prob")
-knn_train_prob <- ifelse(knn_pred_train == "1", knn_prob_attr_train, 1 - knn_prob_attr_train)
-
-
-## Decision Tree (tuned rpart)
-set.seed(12345)
-df_train_dt <- df_train
-df_test_dt  <- df_test
-df_train_dt$is_canceled <- as.factor(df_train_dt$is_canceled)
-df_test_dt$is_canceled  <- as.factor(df_test_dt$is_canceled)
-
-cp_grid <- expand.grid(cp = seq(0.001, 0.05, length.out = 10))
-dtuned <- train(
-  is_canceled ~ ., data = df_train_dt,
-  method     = "rpart",
-  trControl  = trainControl(method = "cv", number = 5),
-  tuneGrid   = cp_grid
-)
-best_cp <- dtuned$bestTune$cp
-
-dt_model <- rpart(
-  is_canceled ~ .,
-  data    = df_train_dt,
-  method  = "class",
-  control = rpart.control(cp = best_cp)
-)
-
-dt_train_prob <- predict(dt_model, df_train_dt, type = "prob")[, "1"]
-dt_test_prob  <- predict(dt_model, df_test_dt,  type = "prob")[, "1"]
-
-## Random Forest (ntree = 800 from RF writeup)
-set.seed(123)
-rf_model <- randomForest(
-  as.factor(is_canceled) ~ .,
-  data  = df_train,
-  ntree = 800
-)
-
-rf_train_prob <- predict(rf_model, df_train, type = "prob")[, "1"]
-rf_test_prob  <- predict(rf_model, df_test,  type = "prob")[, "1"]
-
-## SVM (linear kernel, chosen in SVM writeup)
-set.seed(12345)
-df_train_svm <- df_train
-df_test_svm  <- df_test
-df_train_svm$is_canceled <- as.factor(df_train_svm$is_canceled)
-df_test_svm$is_canceled  <- as.factor(df_test_svm$is_canceled)
-
-svm_linear <- svm(
-  is_canceled ~ .,
-  data        = df_train_svm,
-  kernel      = "linear",
-  probability = TRUE
-)
-
-svm_train_prob <- attr(
-  predict(svm_linear, df_train_svm, probability = TRUE),
-  "probabilities"
-)[, "1"]
-
-svm_test_prob <- attr(
-  predict(svm_linear, df_test_svm, probability = TRUE),
-  "probabilities"
-)[, "1"]
-
-############################################
-# 2. Stacked model: meta-logistic on base probs
-############################################
 
 stack_train <- data.frame(
   log         = log_train_prob,
@@ -188,9 +25,8 @@ stack_test <- data.frame(
 stack_model <- glm(is_canceled ~ ., data = stack_train, family = "binomial")
 stack_test_prob <- predict(stack_model, stack_test, type = "response")
 
-############################################
+
 # 3. Cost matrix + threshold sweep for all models
-############################################
 
 # Cost matrix: FPs are much more expensive than FNs
 C_FP <- 1200  # false positive: predict cancel, guest shows (walk/overbook)
@@ -245,19 +81,17 @@ results_all <- rbind(
   sweep_model(y_test, stack_test_prob, "Stacked (meta-logit)", C_FP, C_FN)
 )
 
-############################################
+
 # 4. Original no-FP logistic + simple baseline
-############################################
 
 ## 4a. Original logistic regression (no false positives)
 ##     Source your LogisticRegression.R, which finds the precision-max threshold
-
-source("models/LogisticRegression.R")  # assumes it creates cancel_pred_m1, metric_summary, y_test
+# assumes it creates cancel_pred_m1, metric_summary, y_test
 
 # Threshold that maximizes precision in the original LR (this should give 0 FPs)
-orig_thresh_no_fp <- metric_summary$Threshold[metric_summary$Metric == "Precision"]
+orig_thresh_no_fp <- metric_plot_df$Threshold[metric_plot_df$Metric == "Precision"]
 
-orig_preds <- ifelse(cancel_pred_m1 >= orig_thresh_no_fp, 1, 0)
+orig_preds <- ifelse(log_test_prob >= orig_thresh_no_fp, 1, 0)
 
 orig_cm <- confusionMatrix(
   factor(orig_preds, levels = c(0, 1)),
@@ -318,6 +152,8 @@ best_by_cost <- results_all_full %>%
   slice_min(AvgCost, with_ties = FALSE) %>%
   ungroup()
 
+print(best_by_cost)
+
 # Objects to look at after sourcing:
 #   results_all_full  -> all thresholds for the 6 base models + stacked
 #                        plus single rows for original LR no-FP and baseline
@@ -351,3 +187,5 @@ plot_best_cost <- function() {
       theme_minimal()
   )
 }
+
+plot_best_cost()
