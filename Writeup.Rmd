@@ -63,15 +63,11 @@ There is quite a high cancellation rate. Thus, it is worth investigating how muc
 
 Refer to the *data_cleaning_splitting.Rmd* under the data folder.
 
-
-## Step 4&5: Create, Predict Models
-
-
-source("...")
-
 ```{r}
 source("data/data_cleaning_splitting.R")
 ```
+
+## Step 4&5: Create, Predict Models
 
 
 ### Logistic Regression
@@ -133,6 +129,19 @@ source("models/RandomForest.R")
 source("models/StackedDT.R")
 best_by_cost
 plot_best_cost()
+```
+
+
+
+```{r}
+source("data/data_cleaning_splitting.R") 
+source("models/LogisticRegression.R") 
+source("models/KNN.R")                  # produces knn_train_prob & knn_test_prob
+source("models/DecisionTree.R")        # produces c50_model, pred_c50_prob
+source("models/RandomForest.R")        # produces rf_train_prob & rf_test_prob
+source("models/SVM.R")                  # produces svm_train_prob & svm_test_prob
+source("models/ANN.R")           # produces ann_train_prob & ann_test_prob
+source("models/metaDecTr.R")
 ```
 
 Given that giving someone a room at a different hotel plus compensation is about twice as expensive as an empty $500 room, the Random Forest with threshold 0.55 is the cheapest policy: it creates the lowest average loss per reservation. The other models either send too many guests away to other hotels or leave too many rooms empty, so their average cost per booking is higher.
