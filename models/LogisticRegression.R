@@ -1,19 +1,18 @@
-## LogisticRegression.R
-## Logistic regression with a small stepwise feature selection and threshold search
-
+# Logistic Regression
 library(caret)
 library(ggplot2)
 
 # Make sure the outcome is 0/1 numeric
+# this just makes sure everything is numbers instead of like "yes" and "no"
 if (is.factor(df_train$is_canceled) || is.character(df_train$is_canceled)) {
   df_train$is_canceled <- as.numeric(as.character(df_train$is_canceled))
   df_test$is_canceled  <- as.numeric(as.character(df_test$is_canceled))
 }
 
 # Drop predictors with near-zero variance
+# gets rid of columns that are basically all the same value bc they don't help
 pred_names <- setdiff(names(df_train), "is_canceled")
 nzv_idx <- nearZeroVar(df_train[, pred_names, drop = FALSE])
-
 if (length(nzv_idx) > 0) {
   drop_names <- pred_names[nzv_idx]
   df_train <- df_train[, !(names(df_train) %in% drop_names), drop = FALSE]
@@ -33,6 +32,7 @@ backward_step_limited <- function(formula, data, family = binomial(),
   resp <- all.vars(formula)[1]
   terms_curr <- attr(terms(current_model), "term.labels")
   
+  # tries removing variables to see if model improves (lower AIC is better)
   for (step_i in seq_len(max_steps)) {
     if (length(terms_curr) == 0) break
     
@@ -70,7 +70,6 @@ backward_step_limited <- function(formula, data, family = binomial(),
 # Fit logistic regression with limited backward stepwise
 m1 <- backward_step_limited(is_canceled ~ ., data = df_train, family = binomial())
 
-
 # Compute train & test probabilities for stacking
 log_train_prob <- predict(m1, df_train, type = "response")  # train-side
 log_test_prob  <- predict(m1, df_test, type = "response")   # test-side
@@ -80,6 +79,8 @@ saveRDS(log_train_prob, "RDS/log_train_prob.rds")
 saveRDS(log_test_prob,  "RDS/log_test_prob.rds")
 
 # Threshold sweep for evaluation
+# checking different thresholds to see which one works best
+# like do we predict canceled when prob is over 0.5? or 0.3? testing them all
 thresholds <- seq(0.01, 0.99, by = 0.01)
 precisions <- sensitivities <- accuracies <- kappas <- numeric(length(thresholds))
 y_test <- df_test$is_canceled
@@ -100,7 +101,6 @@ for (i in seq_along(thresholds)) {
 
 precisions[is.nan(precisions)] <- NA
 best_idx_safe <- function(x) which.max(ifelse(is.na(x), -Inf, x))
-
 best_threshold_prec <- thresholds[best_idx_safe(precisions)]
 cat("Best threshold by precision:", best_threshold_prec, "\n")
 
