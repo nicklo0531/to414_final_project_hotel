@@ -15,7 +15,6 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
-knitr::opts_chunk$set(cache = TRUE)
 ```
 
 <style>
@@ -37,16 +36,13 @@ knitr::opts_chunk$set(cache = TRUE)
 
 # Step 0 - Why?
 
-We have been hired by IHG, a global Hotel and Resorts brand, to help the Management of the City Hotel Ahmedabad, India minimize revenue loss through late cancellations that leave rooms empty. Our business problem is pretty simple: we’re a high-end hotel that wants to predict which reservations are likely to cancel before the guest ever shows up. Because cancellations are common, hotels usually “overbook” a little bit to avoid having empty rooms. But if we overbook too aggressively and the guests don’t cancel, we end up with more people than rooms and have to send someone to another hotel and compensate them. On the other hand, if we play it too safe and don’t overbook at all, we leave expensive rooms empty. 
+We have been hired by IHG, a global Hotel and Resorts brand, to help the management of the City Hotel Ahmedabad. IHG has been facing the problem of revenue loss due to room cancellations. It is shown that around 40% of rooms are canceled after booking. Because cancellations are common, hotels usually “overbook” a little bit to avoid having empty rooms. IHG does not wish to overbook too aggressively since they would have to compensate the guests with a better room and compliments. On the other hand, if we play it too safe and don’t overbook at all, we leave expensive rooms empty. This prompts IHG to explore models that would allow them to overbook the rooms to minimize missed revenue. We aim to predict which reservations are likely to cancel before the guest shows up. 
 
 We act as consultants, and management has provided us with a data set of 4,850 reservations with 27 variables plus the final binary outcome is_canceled, which is 1 if the guest cancelled and 0 if they actually stayed. We are trying to predict this outcome through the other variables that describe what the hotel already knows at booking time like lead time, length of previous stay, number of guests, room type, booking channel, and previous cancellations.
+	
+In this project our prediction task is to estimate, for each new booking, the probability that it will be canceled. We will build and compare several models including Logistic Regression, KNN (k-Nearest-Neighbours), ANN (Artificial Neural Network), Decision Tree, Random Forest, and Support Vector Machine. We aim to optimize precision since we would want to avoid false positives (predicting the guest to cancel but they actually show up) which would incur extra cost. We'll then build a stacked meta model (second layer decision tree) that leverages the predicted probabilities from the base models as inputs and produces a final cancellation probability which the hotel can use when setting its overbooking policy.
 
-In this project our prediction task is to estimate, for each new booking, the probability that it will be canceled. We build and compare several models including Logistic Regression, k-Nearest-Neighbours, Artificial Neural Network, Decision Tree, Random Forest, and a Support Vector Machine.
-We'll then build a stacked meta model (second layer decision tree) that uses the predicted probabilities from the base models as inputs and produces a final cancellation probability which the hotel can use when setting its overbooking policy.
-
-We will evaluate the differences between all individual models and the stacked model in classic statistical metrics and by computing the expected net financial impact of model implementation. From this analysis, we are able to provide management with a recommendation of which model to implement and how to do so. 
-
-There is quite a high cancellation rate. Thus, it is worth investigating how much we should allow overbooking.
+We will evaluate the differences between our baseline without a model, all individual models, a very conservative logistic regression model that prioritizes minimizing false positives, and the stacked model in classic statistical metrics and compute the expected net financial impact of model implementation. From this analysis, we are able to provide the management with a recommendation of which model to implement and how to do so. They will also be able to optimize room reservations to prevent revenue loss due to empty rooms and overbooking.
 
 # Step 1&2&3: Load, Clean, and Split Data
 
@@ -56,55 +52,66 @@ Refer to the *data_cleaning_splitting.Rmd* under the data folder.
 source("data/data_cleaning_splitting.R")
 ```
 
-## Step 4&5: Create, Predict Models
+# Step 4&5: Create, Predict Models
 
+## First-level Models
 
-### Logistic Regression
+### A - Logistic Regression
 
 ```{r logistic_regression_results}
 source("models/LogisticRegression.R")
 ```
 
-### KNN
+### B - KNN
 
 ```{r knn_results}
 source("models/KNN.R")
 ```
 
-### ANN
+In order to optimize the KNN model, we tuned k by testing different values from 0 to 31. After obtaining the accuracy, sensitivity and specificity for each K, we have selected the one with the highest specificity. This is because false positives, predicting a cancellation when the guests actually show up, are very expensive. We want a model that can correctly identify non-cancellations.
+
+### C - ANN
+
 ```{r ann_results}
 source("models/ANN.R")
 ```
 
-### SVM
+Due to expensive computations using ANN, we took a subset of the train data since the full dataset takes more than 20 minutes to run. We played around with different neurons in two layers and ultimately applied 3 neurons for the first layer and 2 neurons for the second layer.
+
+### D - SVM
+
 ```{r svm_results}
 source("models/SVM.R")
 ```
 
+We put three SVM kernels- linear, radial, and sigmoid- into trials to look for the optimal kernel. The linear kernel slightly outperformed radial, so we applied it for the final model.
 
-### Decision Tree
+### E - Decision Tree
 
 ```{r dt_results}
 source("models/DecisionTree.R")
 ```
 
 
-
-### Random Forest
+### F - Random Forest
 
 ```{r rf_results}
 source("models/RandomForest.R")
 ```
 
+To model cancellation behaviour, we trained a Random Forest classifier. We tuned the number of trees (ntree) by testing values from 100 to 2000 in steps of 100, using out-of-sample precision as the primary metric. Performance plateaued quickly, and 300 trees delivered the best balance of accuracy, sensitivity, and precision, so we selected ntree = 300 for the final model.
 
-## Step 6: Combine Models
+## Stacked Models
 
+### Second-layer Decision Tree
 
-```{r stacked_dt, cache=FALSE}
+```{r stacked_dt}
 source("models/metaDT.R")
 ```
 
-```{r stacked_lr, cache=FALSE}
+### Second-layer Logistic Regression
+
+```{r stacked_lr}
 source("models/StackedLR.R")
 ```
 
@@ -118,15 +125,8 @@ with cost matrix (?)
 without cost matrix (??)
 
 
-## Step 7: Final Prediction
+# Step 7: Implement Model
 
-
-
-## Step 8: Model Evaluation
-
-
-
-## Step 9: Implications, Limitations, and Further Steps
 
 Limitations: Did not explore financial impact by having a policy that 
 

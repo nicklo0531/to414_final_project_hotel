@@ -360,3 +360,50 @@ plot_best_cost <- function() {
 plot_best_cost()
 ```
 
+
+```{r}
+library(dplyr)
+library(caret)
+
+# Best model row
+
+best_row <- best_by_cost %>% slice_min(AvgCost, with_ties = FALSE)
+
+best_model_name <- best_row$Model
+best_threshold  <- best_row$Threshold
+
+cat("Best model:", best_model_name, "\n")
+cat("Threshold used:", best_threshold, "\n\n")
+
+# Get predicted probabilities
+
+pred_probs <- switch(
+best_model_name,
+"Logistic"             = log_test_prob,
+"ANN"                  = ann_test_prob,
+"KNN"                  = knn_test_prob,
+"Decision Tree"        = dt_test_prob,
+"Random Forest"        = rf_test_prob,
+"SVM (linear)"         = svm_test_prob,
+"Stacked (meta-logit)" = stack_test_prob
+)
+
+# Convert probabilities to factor predictions
+
+if (is.na(best_threshold)) {
+pred_classes <- factor(ifelse(pred_probs >= 0.5, 1, 0), levels = c(0,1))
+} else {
+pred_classes <- factor(ifelse(pred_probs >= best_threshold, 1, 0), levels = c(0,1))
+}
+
+# Ensure reference is factor with same levels
+
+y_test_factor <- factor(y_test, levels = c(0,1))
+
+# Compute confusion matrix
+
+best_cm <- confusionMatrix(pred_classes, y_test_factor, positive="1")
+best_cm
+
+```
+

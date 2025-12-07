@@ -110,16 +110,3 @@ cm_log <- confusionMatrix(factor(cancel_bin_pred_m1, levels = c(0,1)),
                           factor(y_test, levels = c(0,1)),
                           positive = "1")
 print(cm_log)
-
-# Optional: plot precision vs sensitivity
-metric_plot_df <- data.frame(
-  Threshold = rep(thresholds, 2),
-  Value     = c(precisions, sensitivities),
-  Metric    = rep(c("Precision", "Sensitivity"), each = length(thresholds))
-)
-
-print(ggplot(metric_plot_df, aes(x = Threshold, y = Value, color = Metric)) +
-  geom_line() +
-  labs(title = "Precision vs Sensitivity across thresholds",
-       x = "Threshold", y = "Metric value") +
-  theme_minimal())

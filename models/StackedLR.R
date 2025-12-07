@@ -2,6 +2,23 @@ library(caret)
 library(dplyr)
 library(ggplot2)
 
+log_train_prob <- readRDS("RDS/log_train_prob.rds")
+log_test_prob  <- readRDS("RDS/log_test_prob.rds")
+
+knn_train_prob <- readRDS("RDS/knn_train_prob.rds")
+knn_test_prob  <- readRDS("RDS/knn_test_prob.rds")
+
+c50_train_prob <- readRDS("RDS/c50_train_prob.rds")
+c50_test_prob  <- readRDS("RDS/c50_test_prob.rds")
+
+rf_train_prob <- readRDS("RDS/rf_train_prob.rds")
+rf_test_prob  <- readRDS("RDS/rf_test_prob.rds")
+
+svm_train_prob <- readRDS("RDS/svm_linear_train_prob.rds")
+svm_test_prob  <- readRDS("RDS/svm_linear_test_prob.rds")
+
+ann_train_prob <- readRDS("RDS/ann_train_prob.rds")
+ann_test_prob <- readRDS("RDS/ann_test_prob.rds")
 
 stack_train <- data.frame(
   log         = log_train_prob,
@@ -24,7 +41,6 @@ stack_test <- data.frame(
 
 stack_model <- glm(is_canceled ~ ., data = stack_train, family = "binomial")
 stack_test_prob <- predict(stack_model, stack_test, type = "response")
-
 
 # 3. Cost matrix + threshold sweep for all models
 
@@ -81,7 +97,6 @@ results_all <- rbind(
   sweep_model(y_test, stack_test_prob, "Stacked (meta-logit)", C_FP, C_FN)
 )
 
-
 # 4. Original no-FP logistic + simple baseline
 
 ## 4a. Original logistic regression (no false positives)
@@ -89,7 +104,8 @@ results_all <- rbind(
 # assumes it creates cancel_pred_m1, metric_summary, y_test
 
 # Threshold that maximizes precision in the original LR (this should give 0 FPs)
-orig_thresh_no_fp <- metric_plot_df$Threshold[metric_plot_df$Metric == "Precision"]
+best_idx <- which.max(ifelse(is.na(precisions), -Inf, precisions))
+orig_thresh_no_fp <- thresholds[best_idx]
 
 orig_preds <- ifelse(log_test_prob >= orig_thresh_no_fp, 1, 0)
 
@@ -189,3 +205,41 @@ plot_best_cost <- function() {
 }
 
 plot_best_cost()
+
+
+# Find the best model row by AvgCost
+
+best_row <- best_by_cost %>% slice_min(AvgCost, with_ties = FALSE)
+
+best_model_name <- best_row$Model
+best_threshold  <- best_row$Threshold
+
+cat("Best model:", best_model_name, "\n")
+cat("Threshold used:", best_threshold, "\n\n")
+
+# Determine which predicted probabilities to use
+
+pred_probs <- switch(
+  best_model_name,
+  "Logistic"             = log_test_prob,
+  "ANN"                  = ann_test_prob,
+  "KNN"                  = knn_test_prob,
+  "Decision Tree"        = dt_test_prob,
+  "Random Forest"        = rf_test_prob,
+  "SVM (linear)"         = svm_test_prob,
+  "Stacked (meta-logit)" = stack_test_prob
+)
+
+# Convert probabilities to class predictions using threshold
+
+if (is.na(best_threshold)) {   # baseline or no-FP logistic
+  pred_classes <- ifelse(pred_probs >= 0.5, 1, 0)
+} else {
+  pred_classes <- ifelse(pred_probs >= best_threshold, 1, 0)
+}
+
+# Print confusion matrix
+
+best_cm <- confusionMatrix(factor(pred_classes, levels=c(0,1)), y_test, positive="1")
+best_cm
+
