@@ -44,7 +44,7 @@ In this project our prediction task is to estimate, for each new booking, the pr
 
 We will evaluate the differences between our baseline without a model, all individual models, a very conservative logistic regression model that prioritizes minimizing false positives, and the stacked model in classic statistical metrics and compute the expected net financial impact of model implementation. From this analysis, we are able to provide the management with a recommendation of which model to implement and how to do so. They will also be able to optimize room reservations to prevent revenue loss due to empty rooms and overbooking.
 
-# Step 1&2&3: Load, Clean, and Split Data
+# Step 1 & 2 & 3 : Load, Clean, and Split Data
 
 Refer to the *data_cleaning_splitting.Rmd* under the data folder.
 
@@ -52,7 +52,7 @@ Refer to the *data_cleaning_splitting.Rmd* under the data folder.
 source("data/data_cleaning_splitting.R")
 ```
 
-# Step 4&5: Create, Predict Models
+# Step 4 & 5 & 6 : Create, Predict and Evaluate Models
 
 ## First-level Models
 
@@ -127,7 +127,8 @@ without cost matrix (??)
 
 # Step 7: Implement Model
 
+## Next Steps
 
-Limitations: Did not explore financial impact by having a policy that 
+## Future Explorations
 
-Dynamic
+
