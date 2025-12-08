@@ -18,7 +18,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
-knitr::opts_chunk$set(cache = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
 ```
 
 <style>
@@ -114,16 +114,14 @@ The baseline model that did nto allow overbooking when guests do show up only ca
 
 ### B - KNN
 
-```{r knn_results, cache=FALSE}
+```{r knn_results}
 source("models/KNN.R")
 ```
 
 We implemented a K-Nearest Neighbors (KNN) model as our second first-level model. 
 To optimize the latter, we tested a range of odd k-values from 3 to 39 to find the configuration that maximized AUC (the Area under the ROC-curve) for strong segmentation between canceled and non-canceled bookings.
 
-The selected best k = 35 lies between the two heuristics we discussed in class ($k=sqrt(n)$ and $k=sqrt(n/2)$)
-
-The selected best k for KNN was 35, which lies between the two common heuristics discussed in class: \( k = \sqrt{n/2} \) ≈ 31 and \( k = \sqrt{n} \) ≈ 44, given that the training sample size n = 1,940. This confirms that our data-driven selection is consistent with classical guidance, balancing bias and variance in the model.
+The selected best k for KNN was 35, which lies between the two common heuristics discussed in class: $k = \sqrt{n/2} ≈ 31$ and $k = \sqrt{n} ≈ 44$, given that the training sample size $n = 1,940$. This confirms that our data-driven selection is consistent with classical guidance, balancing bias and variance in the model.
 
 We then generated probability predictions for both training and test sets for later use in stacking. Using a 0.5 threshold to classify cancellations, KNN achieved an accuracy of 74.3%, sensitivity of 47.7%, and specificity of 94.4%. This indicates the model was conservative in predicting cancellations, reliably avoiding false positives, which helps reduce potential revenue loss.
 
@@ -133,7 +131,7 @@ The accompanying plot shows AUC as a function of k, highlighting the chosen opti
 
 ![](images/ANN_hotel.png)
 
-```{r ann_results, cache=FALSE}
+```{r ann_results}
 source("models/ANN.R")
 ```
 
@@ -172,7 +170,7 @@ The confusion matrix for C5.0 shows that it correctly identifies 90.0% of cancel
 ### F - Random Forest
 
 
-```{r rf_results, cache = FALSE}
+```{r rf_results}
 source("models/RandomForest.R")
 ```
 
@@ -186,21 +184,34 @@ This Random Forest achieved an overall accuracy of 82.0% and a Kappa of 0.627, i
 ## Evaluating first level Models
 
 #### Summary for First-Level Models
-	
-The six base models we used are optimized with their respective parameters and thresholds. Random forest is especially outperforming the other models, giving good combinations of the metrics. These base models provide a good foundation for our stacked model.
+
+We optimized the six base models over their respective parameters along statistical metrics. However, we are really interested to see how they perform in financial terms. We will shortly introduce our benefit-analysis approach, define a cost-matrix and compare the first-level models with this monetary metric.
 
 #### Introducing Cost Matrix 
 
-Cost Matrix
-True Positives: predict cancel, and actually cancel
-There will be a cost of $\$0$ since the room will not be left empty.
-True Negatives: predict no cancel, and actually no cancel
-There will be a cost of $\$0$ since the room will not be left empty.
-False Positives: predict cancel, and actually no cancel
-There will be a cost of $\$1200$. This is because we canceled the room but the guest actually showed up. We must make it right. Therefore, we will have to accommodate them in a suite at our sister hotel which would cost us $\$800$ as well as offer some discounts and compliments worth around $\$400$.
-False Negatives: predict no cancel, but actually cancel
-There will be a cost of $\$500$. This is because we predicted them to not cancel but they actually canceled. The room will be left empty and we would not have earned the $\$500$.
+There are multiple ways to model the impact of our model to the business case. One could try to plainly maximize revenue, maximize the net benefit of a model compared to a baseline of no model in place, or compare the benefit of the models to an ideal scenario where no empty rooms and no overbooking happens.
 
+We have chosen to move forward with the latter approach. This implies computing the average costs per booking (per row) induced by the model as a deviance from the perfect scenario.
+
+We have estimated, assumed and defined the following components for our cost matrix.
+
+###### Cost of True Negative (C_TN) = $\$0$
+The customer does not cancel their booking and we expect this fact.
+There will be a loss of $\$0$ since no room is left empty and no overbooking occurs.
+
+###### Cost of True Positive (C_TP) = $\$0$
+The customer cancels their booking, but we correctly anticipate this outcome
+Because we have anticipated this outcome, we overbooked the customers room. Therefore, we incur a loss of $\$0$ since the room is occupied by another customer.
+
+###### Cost of False Negative (C_FN) = $\$500$
+The customer cancels their booking, however we expected him to arrive.
+The Hotel incurs a loss of $\$500$ which is an average estimate of the revenue that would have been generated by a stay in an average room, with an average amount of people for an average amount of nights.
+
+###### Cost of False Positive (C_FP) = $\$1200$
+The customer does not cancel their booking, but we expected him to cancel.
+Because we anticipated a cancellation, we have overbooked the customers room. Hence, the room is occupied by another customer, which is why we have to offer alternative accommodation for the customer we expected to cancel. Our cost assumption amounts to $\$1200$ and includes providing a replacement room suite at a sister hotel ($\$800$), discounts and hotel restaurant credit worth $\$200$ and accounts for possible trickle-down effects on revenue from bad-reviews ($\$200$).
+
+We 
 
 ```{r comp}
 source("models/base_comparison.R")

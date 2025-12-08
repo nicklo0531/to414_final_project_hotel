@@ -1,0 +1,13 @@
+ggplot2
+lattice
+caret
+class
+pROC
+neuralnet
+e1071
+rpart
+rpart.plot
+C50
+randomForest
+reshape2
+dplyr
