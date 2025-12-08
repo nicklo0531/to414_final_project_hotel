@@ -1,82 +1,82 @@
 library(caret)
 library(dplyr)
 library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(pROC)
 
-### 1. Train Stacked Logistic (meta-LR)
-stack_model <- glm(is_canceled ~ ., data = stack_train, family = "binomial")
-stack_lr_prob <- predict(stack_model, stack_test, type = "response")  # length == y_final
 
+# 1. Train all meta-models
 
-### 2. Train Random Forest meta-model (metaRF)
+# metaDT with more splits
 set.seed(12345)
-meta_rf_model <- randomForest(
-  is_canceled ~ ., 
-  data = stack_train,
-  ntree = 500,
-  mtry = 3,
-  nodeSize = 5
+metaDT <- rpart(
+  is_canceled ~ ., data = stack_train, method = "class",
+  control = rpart.control(cp = 0.0001)
 )
+metaDT_prob <- predict(metaDT, stack_test, type = "prob")[, "1"]
 
-# Predict meta-RF probabilities (class "1")
-stack_rf_prob <- predict(meta_rf_model, stack_test, type = "prob")[, "1"]
+# metaLR
+metaLR <- glm(is_canceled ~ ., data = stack_train, family = "binomial")
+metaLR_prob <- predict(metaLR, stack_test, type = "response")
 
-# Ensure lengths match for evaluation
-stopifnot(length(stack_rf_prob) == length(y_final))
+# metaRF
+set.seed(12345)
+metaRF <- randomForest(
+  is_canceled ~ ., data = stack_train,
+  ntree = 500, mtry = 3, nodesize = 5
+)
+metaRF_prob <- predict(metaRF, stack_test, type = "prob")[, "1"]
+
+# base RF probability on same final set
+baseRF_prob <- rf_test_prob[-meta_idx]
 
 
-### 3. Evaluate MetaDT (already trained above)
-stack_dt_prob <- stack_pred_prob  # from your previous rpart predict()
-stopifnot(length(stack_dt_prob) == length(y_final))
-stopifnot(length(stack_lr_prob) == length(y_final))
+# 2. Threshold sweep
 
+thresholds <- seq(0.01, 0.99, by = 0.01)
 
-### 4. Cost matrix + threshold sweep
-C_FP <- 1200
-C_FN <- 500
-
-evaluate_at_threshold <- function(y_true, p_hat, threshold, C_FP, C_FN) {
-  preds <- ifelse(p_hat >= threshold, 1, 0)
+evaluate <- function(y, p, t) {
+  preds <- ifelse(p >= t, 1, 0)
   cm <- confusionMatrix(
-    factor(preds, levels = c(0, 1)),
-    factor(y_true, levels = c(0, 1)),
-    positive = "1"
+    factor(preds, levels=c(0,1)),
+    factor(y,    levels=c(0,1)),
+    positive="1"
   )
-  FP <- sum(preds == 1 & y_true == 0)
-  FN <- sum(preds == 0 & y_true == 1)
-  cost <- C_FP * FP + C_FN * FN
-  avg_cost <- cost / length(y_true)
+  FP <- sum(preds == 1 & y == 0)
+  FN <- sum(preds == 0 & y == 1)
+  cost <- C_FP*FP + C_FN*FN
   
-  data.frame(
-    Threshold = threshold,
-    Accuracy  = as.numeric(cm$overall["Accuracy"]),
-    Kappa     = as.numeric(cm$overall["Kappa"]),
-    Sensitivity = as.numeric(cm$byClass["Sensitivity"]),
-    Precision   = as.numeric(cm$byClass["Pos Pred Value"]),
-    AvgCost   = avg_cost
+  tibble(
+    Threshold = t,
+    Accuracy = cm$overall["Accuracy"],
+    Kappa    = cm$overall["Kappa"],
+    Sensitivity = cm$byClass["Sensitivity"],
+    Precision   = cm$byClass["Pos Pred Value"],
+    AvgCost  = cost / length(y)
   )
 }
 
 sweep_model <- function(name, y_true, prob) {
-  thresholds <- seq(0.01, 0.99, by = 0.01)
-  out <- do.call(rbind, lapply(thresholds, function(t)
-    evaluate_at_threshold(y_true, prob, t, C_FP, C_FN)
-  ))
-  out$Model <- name
-  out
+  results <- do.call(
+    rbind,
+    lapply(thresholds, function(t) evaluate(y_true, prob, t))
+  )
+  results$Model <- name
+  results
 }
 
 
-### 5. Run sweeps for: metaDT, metaLR, metaRF, base RF
-results <- rbind(
-  sweep_model("metaDT",        y_final, stack_dt_prob),
-  sweep_model("metaLR",        y_final, stack_lr_prob),
-  sweep_model("metaRF",        y_final, stack_rf_prob),
-  sweep_model("Random Forest", y_final, rf_test_prob[-meta_idx])
+# 3. Sweep all models together
+
+results_all <- bind_rows(
+  sweep_model("metaDT", y_final, metaDT_prob),
+  sweep_model("metaLR", y_final, metaLR_prob),
+  sweep_model("metaRF", y_final, metaRF_prob),
+  sweep_model("baseRF", y_final, baseRF_prob)
 )
 
-
-### 6. Best threshold for each
-best_table <- results %>%
+best_table <- results_all %>%
   group_by(Model) %>%
   slice_min(AvgCost, with_ties = FALSE) %>%
   ungroup()
@@ -84,9 +84,10 @@ best_table <- results %>%
 print(best_table)
 
 
-### 7. Helper: final confusion matrices
-get_cm <- function(prob, threshold, y_true) {
-  preds <- ifelse(prob >= threshold, 1, 0)
+# 4. Final confusion matrices
+
+get_cm <- function(prob, thr, y_true) {
+  preds <- ifelse(prob >= thr, 1, 0)
   confusionMatrix(
     factor(preds, levels=c(0,1)),
     factor(y_true, levels=c(0,1)),
@@ -94,35 +95,24 @@ get_cm <- function(prob, threshold, y_true) {
   )
 }
 
-
-### Final CMs
-
-# MetaDT
-best_dt_row <- best_table %>% filter(Model == "metaDT")
-final_cm_metaDT <- get_cm(stack_dt_prob, best_dt_row$Threshold, y_final)
-
-# Stacked-LR
-best_lr_row <- best_table %>% filter(Model == "metaLR")
-final_cm_metaLR <- get_cm(stack_lr_prob, best_lr_row$Threshold, y_final)
-
-# Stacked-RF (NEW)
-best_rfmeta_row <- best_table %>% filter(Model == "metaRF")
-final_cm_metaRF <- get_cm(stack_rf_prob, best_rfmeta_row$Threshold, y_final)
-
-# Base Random Forest
-best_rf_row <- best_table %>% filter(Model == "Random Forest")
-final_cm_rf <- get_cm(rf_test_prob[-meta_idx], best_rf_row$Threshold, y_final)
+final_cm_metaDT <- get_cm(metaDT_prob, best_table$Threshold[best_table$Model=="metaDT"], y_final)
+final_cm_metaLR <- get_cm(metaLR_prob, best_table$Threshold[best_table$Model=="metaLR"], y_final)
+final_cm_metaRF <- get_cm(metaRF_prob, best_table$Threshold[best_table$Model=="metaRF"], y_final)
+final_cm_baseRF <- get_cm(baseRF_prob, best_table$Threshold[best_table$Model=="baseRF"], y_final)
 
 
-### Print final matrices
-cat("\n\n=== Final Confusion Matrix: metaDT ===\n")
+# 5. Print results
+
+rpart.plot(metaDT)
+
+cat("\n=== Final Confusion Matrix: metaDT ===\n")
 print(final_cm_metaDT)
 
-cat("\n\n=== Final Confusion Matrix: metaLR ===\n")
+cat("\n=== Final Confusion Matrix: metaLR ===\n")
 print(final_cm_metaLR)
 
-cat("\n\n=== Final Confusion Matrix: metaRF ===\n")
+cat("\n=== Final Confusion Matrix: metaRF ===\n")
 print(final_cm_metaRF)
 
-cat("\n\n=== Final Confusion Matrix: Base Random Forest ===\n")
-print(final_cm_rf)
+cat("\n=== Final Confusion Matrix: baseRF ===\n")
+print(final_cm_baseRF)

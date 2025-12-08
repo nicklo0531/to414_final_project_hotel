@@ -92,9 +92,8 @@ baseline_row <- data.frame(
   Model       = "Baseline (No Model)"
 )
 
-################################################################################
+
 # Combine with main results
-################################################################################
 
 best_by_cost <- results_all %>%
   group_by(Model) %>%
@@ -106,16 +105,18 @@ best_by_cost <- bind_rows(best_by_cost, baseline_row)
 print(best_by_cost)
 
 # Plot best AvgCost
-ggplot(best_by_cost, aes(x=reorder(Model, AvgCost), y=AvgCost)) +
+print(
+  ggplot(best_by_cost, aes(x=reorder(Model, AvgCost), y=AvgCost)) +
   geom_col() +
   geom_text(aes(label = ifelse(is.na(Threshold),
                                "t = N/A",
                                paste0("t = ", round(Threshold, 2)))),
             hjust=-0.1, size=3) +
   coord_flip() +
-  labs(title="Best Average Cost per Booking by Model",
+  labs(title="Best Average Cost per Booking by First-Level-Model",
        x="Model", y="Average Cost ($)") +
   theme_minimal()
+)
 
 # Identify global best model/threshold
 best_model_name <- best_by_cost$Model[which.min(best_by_cost$AvgCost)]

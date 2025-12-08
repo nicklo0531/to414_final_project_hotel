@@ -63,7 +63,7 @@ stack_dt <- rpart(
   is_canceled ~ .,
   data    = stack_train,
   method  = "class",
-  control = rpart.control(cp = 0.01)
+  control = rpart.control(cp = 0.1)
 )
 
 stack_pred_prob  <- predict(stack_dt, stack_test, type="prob")[,"1"]
@@ -73,36 +73,4 @@ stack_cm  <- confusionMatrix(stack_pred_class, factor(y_final))
 stack_roc <- roc(y_final, stack_pred_prob)
 stack_auc <- auc(stack_roc)
 
-stack_cm
-stack_auc
-
 rpart.plot(stack_dt)
-
-
-# 6. COST-BASED THRESHOLD SWEEP
-
-c_FP <- 1200
-c_FN <- 500
-
-thresholds <- seq(0.01, 0.99, by = 0.01)
-
-costs <- sapply(thresholds, function(t) {
-  preds <- ifelse(stack_pred_prob >= t, 1, 0)
-  FP <- sum(preds == 1 & y_final == 0)
-  FN <- sum(preds == 0 & y_final == 1)
-  c_FP * FP + c_FN * FN
-})
-
-best_threshold <- thresholds[which.min(costs)]
-
-stack_pred_cost <- ifelse(stack_pred_prob >= best_threshold, 1, 0)
-
-cm_mdt <- confusionMatrix(
-  factor(stack_pred_cost, levels=c(0,1)),
-  factor(y_final),
-  positive="1"
-)
-print(cm_mdt)
-
-
-
