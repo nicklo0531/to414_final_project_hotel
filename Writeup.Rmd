@@ -59,6 +59,8 @@ source("data/data_cleaning_splitting.R")
 
 ### A - Logistic Regression
 
+We built a logistic regression model as our baseline, starting with all available predictor variables and an initial AIC of 2590.027. We used backward stepwise selection, which removed variables one at a time to find the model with the lowest AIC, and over 8 steps we dropped variables like distribution channel, arrival date features, country, room type, market segment, meal type, and number of adults, ultimately reducing the AIC to 2578.054. After finding our best model, we tested 99 different probability thresholds to determine when to classify a booking as canceled, and the threshold that maximized precision was 0.92 (but 0.99 resulted in less revenue lost), meaning we only predict cancellation when we're extremely confident. Our goal was to create a conservative baseline model in which we also had to accept that we'd miss many actual cancellations in order to avoid false positives. We only caught about 38% of actual cancellations for an overall accuracy of 73.09%. The monetary results from this conservative approach were promising though, because there was a significant reduction in lost revenue with this model.
+
 ```{r logistic_regression_results}
 source("models/LogisticRegression.R")
 ```
@@ -128,13 +130,15 @@ Given that giving someone a room at a different hotel plus compensation is about
 
 Looking at the table itself, each row is the “best” version of that model once we plug in our cost numbers. The Threshold column shows how high the predicted cancel-probability has to be before we treat a booking as a cancellation risk. Models with very high thresholds like the ANN at 0.99 are extremely picky and only flag the riskiest guests, which gives them huge Precision but lower Sensitivity because they miss a lot of actual cancellations. On the other side, the logistic model at 0.01 basically flags almost everyone, so its sensitivity is higher but its precision drops. Accuracy and Kappa summarize overall performance, but the main number we care about is AvgCost, which turns all those trade-offs into an estimated dollar loss per reservation. Random Forest ends up with the lowest AvgCost, while the stacked model and SVM are close behind, and the ANN is the most expensive because it leaves too many empty rooms.
 
+with cost matrix (?)
+
+without cost matrix (??)
+
+
 # Step 7: Implement Model
 
 ## Next Steps
 
-Financials with cm_rf
-Projections
-
 ## Future Explorations
 
-Limitations
+
