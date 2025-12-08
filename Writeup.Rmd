@@ -61,11 +61,25 @@ source("data/data_cleaning_splitting.R")
 
 We built a logistic regression model as our baseline, starting with all available predictor variables and an initial AIC of 2590.027. We used backward stepwise selection, which removed variables one at a time to find the model with the lowest AIC, and over 8 steps we dropped variables like distribution channel, arrival date features, country, room type, market segment, meal type, and number of adults, ultimately reducing the AIC to 2578.054. After finding our best model, we tested 99 different probability thresholds to determine when to classify a booking as canceled, and the threshold that maximized precision was 0.92 (but 0.99 resulted in less revenue lost), meaning we only predict cancellation when we're extremely confident. Our goal was to create a conservative baseline model in which we also had to accept that we'd miss many actual cancellations in order to avoid false positives. We only caught about 38% of actual cancellations for an overall accuracy of 73.09%. The monetary results from this conservative approach were promising though, because there was a significant reduction in lost revenue with this model.
 
+Accuracy: 0.731
+Sensitivity: 0.569
+Specificity: 0.902
+Precision: 0.80
+
+
 ```{r logistic_regression_results}
 source("models/LogisticRegression.R")
 ```
 
 ### B - KNN
+
+In order to optimize the KNN model, we tuned k by testing different values from 0 to 31. After obtaining the accuracy, sensitivity and specificity for each K, we have selected the one with the highest specificity. This is because false positives, predicting a cancellation when the guests actually show up, are very expensive. We want a model that can correctly identify non-cancellations.
+
+Accuracy: 0.731
+Sensitivity: 0.5691
+Specificity: 0.9022
+Precision: 0.80
+
 
 ```{r knn_results}
 source("models/KNN.R")
@@ -89,7 +103,20 @@ source("models/SVM.R")
 
 We put three SVM kernels- linear, radial, and sigmoid- into trials to look for the optimal kernel. The linear kernel slightly outperformed radial, so we applied it for the final model.
 
+Accuracy: 0.7897
+Sensitivity: 0.6615
+Specificity: 0.8868
+Precision: 0.816
+
 ### E - Decision Tree
+
+The decision tree is optimized using a trial of 10.
+Accuracy: 0.8057
+Sensitivity: 0.9004
+Specificity: 0.6806
+Precision: 0.838
+
+
 
 ```{r dt_results}
 source("models/DecisionTree.R")
@@ -98,11 +125,17 @@ source("models/DecisionTree.R")
 
 ### F - Random Forest
 
+Need to fix this -- idk how to add a matrix
+
 ```{r rf_results}
 source("models/RandomForest.R")
 ```
 
 To model cancellation behaviour, we trained a Random Forest classifier. We tuned the number of trees (ntree) by testing values from 100 to 2000 in steps of 100, using out-of-sample precision as the primary metric. Performance plateaued quickly, and 300 trees delivered the best balance of accuracy, sensitivity, and precision, so we selected ntree = 300 for the final model.
+
+## Summary for First-Level Models
+	
+The six base models we used are optimized with their respective parameters and thresholds. Random forest is especially outperforming the other models, giving good combinations of the metrics. These base models provide a good foundation for our stacked model.
 
 ## Introducing Cost Matrix and Evaluating first level Models
 
