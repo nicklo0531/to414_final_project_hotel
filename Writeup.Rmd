@@ -47,7 +47,7 @@ We will evaluate the differences between our baseline without a model, all indiv
 
 # Step 1 & 2 & 3 : Load, Clean, and Split Data
 
-Refer to the *data_cleaning_splitting.Rmd* under the data folder.
+Refer to the *data_cleaning_splitting.R* under the data folder.
 
 ```{r data}
 source("data/data_cleaning_splitting.R")
@@ -142,6 +142,7 @@ The six base models we used are optimized with their respective parameters and t
 ```{r comp, cache = FALSE}
 source("models/base_comparison.R")
 ```
+
 As the ANN-Model is evidentely much worse than the other first-level models and as it was only trained on 30% of the test set, we have decided against incorporating it in the stacked models.
 
 ## Stacked Models
@@ -162,11 +163,6 @@ source("models/StackedLR.R")
 Given that giving someone a room at a different hotel plus compensation is about twice as expensive as an empty $500 room, the Random Forest with threshold 0.55 is the cheapest policy: it creates the lowest average loss per reservation. The other models either send too many guests away to other hotels or leave too many rooms empty, so their average cost per booking is higher.
 
 Looking at the table itself, each row is the “best” version of that model once we plug in our cost numbers. The Threshold column shows how high the predicted cancel-probability has to be before we treat a booking as a cancellation risk. Models with very high thresholds like the ANN at 0.99 are extremely picky and only flag the riskiest guests, which gives them huge Precision but lower Sensitivity because they miss a lot of actual cancellations. On the other side, the logistic model at 0.01 basically flags almost everyone, so its sensitivity is higher but its precision drops. Accuracy and Kappa summarize overall performance, but the main number we care about is AvgCost, which turns all those trade-offs into an estimated dollar loss per reservation. Random Forest ends up with the lowest AvgCost, while the stacked model and SVM are close behind, and the ANN is the most expensive because it leaves too many empty rooms.
-
-with cost matrix (?)
-
-without cost matrix (??)
-
 
 # Step 7: Implement Model
 
