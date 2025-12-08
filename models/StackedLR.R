@@ -227,7 +227,7 @@ pred_probs <- switch(
   "Decision Tree"        = dt_test_prob,
   "Random Forest"        = rf_test_prob,
   "SVM (linear)"         = svm_test_prob,
-  "Stacked (meta-logit)" = stack_test_prob
+  "Stacked (meta-lr)" = stack_test_prob
 )
 
 # Convert probabilities to class predictions using threshold
@@ -241,5 +241,5 @@ if (is.na(best_threshold)) {   # baseline or no-FP logistic
 # Print confusion matrix
 
 best_cm <- confusionMatrix(factor(pred_classes, levels=c(0,1)), y_test, positive="1")
-best_cm
+print(best_cm)
 
