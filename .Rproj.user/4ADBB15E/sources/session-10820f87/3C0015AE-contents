@@ -1,0 +1,575 @@
+---
+title: "HW#5 Predicting Alcoholism"
+author: "Lando Schwerdtfeger"
+date: "2025-11-06"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    highlight: tango
+    theme: simplex
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+![](image.png)
+
+Loading some useful libraries...
+
+```{r}
+library(tidyverse)
+library(caret)
+library(class)
+library(ggplot2)
+library(e1071)
+library(rpart)
+library(rpart.plot)
+library(pROC)
+```
+
+# Part 1: Stacked Model Predictive Modelling Approach
+## Step 0: Why
+
+This project focuses on predicting whether a student is likely have a high alcohol consumption or not.
+
+The goal is not only to build accurate models but to understand how these predictions can support early intervention efforts. Alcohol misuse among students can affect academic performance, emotional well-being and long-term health, so identifying students who may be at elevated risk allows support staff to act before more serious problems develop.
+
+A predictive model in this setting would be most useful to school counselors, psychologists and student support teams. These individuals often have limited time and resources, and a system that highlights students with a higher probability of risky behavior can help them prioritize outreach and follow-up. Public health professionals and school administrators may also use such insights to plan targeted prevention programs and monitor broader behavioral trends among students.
+
+Because the cost of overlooking a genuinely high-risk student is much higher than mistakenly flagging a student who is not at risk, my approach emphasizes sensitivity and seeks to reduce false negatives. At the same time, the model must remain practical and interpretable so that it can complement professional judgment. The analysis that follows develops a set of predictive models, combines them through stacking and evaluates whether the resulting system can meaningfully support decision making in this context.
+
+It is also essential to keep in mind that the dataset stems from self-reported surveys. It is not known how these surveys were conducted, which will raise questions about the veracity of responses. First of all, high or low alcohol consumption is subject to interpretation that will differ from student to student. Furthermore, students may have wrongfully reported a lower alcohol consumption due to concerns of anonymity. It may also be the case that some students have wrongfully reported a higher alcohol consumption to benefit from special treatment by prevention initiatives. These thoughts will be kept in mind when tuning and evaluating the models.
+
+## Step 1 and 2: Load and Clean Data
+
+```{r}
+spor <- read.csv("spor.csv", stringsAsFactors = TRUE)
+
+str(spor)
+summary(spor)
+
+spor$Medu <- dplyr::recode(
+  spor$Medu,
+  `0` = 0,
+  `1` = 4,
+  `2` = 9,
+  `3` = 12,
+  `4` = 16
+)
+
+spor$Fedu <- dplyr::recode(
+  spor$Fedu,
+  `0` = 0,
+  `1` = 4,
+  `2` = 9,
+  `3` = 12,
+  `4` = 16
+)
+
+spor$alc <- factor(
+  ifelse(spor$alc == 1, "Yes", "No"),
+  levels = c("No", "Yes")
+)
+
+spor_scaled <- spor
+spor_scaled_no_alc <- spor %>% select(-alc) 
+spor_scaled_dum <- as.data.frame(model.matrix(~ . -1, data = spor_scaled_no_alc))
+
+minmax <- function(x){
+  (x-min(x))/(max(x)-min(x))
+}
+
+spor_scaled <- as.data.frame(lapply(spor_scaled_dum, minmax))
+spor_scaled$alc<- spor$alc
+
+prop.table(table(spor_scaled$alc))
+```
+
+The dataset was checked it to understand size, variable types, and general quality.
+It includes 649 students and a mix of demographic, family, lifestyle, and performance variables, all of which could have some connection to alcohol use. 
+
+The parental education variables (Medu and Fedu) were recoded into actual years of schooling so they behave like meaningful numeric values (as per supplemental instructions on Canvas). Other variables (like health) were left as numeric rather than converted to factors because the survey used a 1-5 scale and studies suggest that such answers will assume even distribution between categories. The alcohol variable was converted into a clear Yes or No label, since that is the outcome we wish to predict. 
+
+To prepare the data for modelling, categorical predictors were turned into dummy variables and scaled everything between zero and one with the minmax function, which is especially important for the KNN and SVM models. 
+
+Finally, looking at the proportion of Yes and No cases it becomes clear that the data is imbalanced, with 62% of students reporting high alcohol use, which will matter when evaluating model performance.
+
+## Step 3: Split the Data
+
+```{r}
+set.seed(12345)
+
+X = spor_scaled[ , colnames(spor_scaled) != "alc", drop = FALSE]
+y = spor_scaled$alc
+
+n = nrow(X)
+train_index = sample(seq_len(n), size = 0.5 * n)
+test_index = setdiff(seq_len(n), train_index)
+
+X_train = X[train_index, ]
+X_test  = X[test_index, ]
+
+y_train = y[train_index]
+y_test  = y[test_index]
+
+```
+
+The data was randomly split it into a 50% training and a 50% test set to preserve enough data for the stacked model later on (which will use a 70/30 split).
+This approach ensures that the meta model is evaluated on data that has not been involved in any earlier modelling steps.
+
+## Steps 4 and 5: Building Models and Predicting
+
+We developed multiple individual models to understand how different approaches handle the prediction task. They will capture different kinds of patterns in the data and when later combined inside a stacked meta-model, each first-level model will be able to contribute individually to a single, more accurate final prediction.
+
+The developped models include logistic regression with backward stepwise regression, three SVM models using Vanilla, RBF and Polynomial kernels and a KNN model with a carefully chosen value of k. 
+
+### A - Logistic Regression
+
+We start by building a very basic logistic regression model and use a probability threshold of 0.5 to compute a confusion matrix that gives an idea of how well this model performs. 
+
+```{r}
+log_base <- glm(y_train ~ ., data = data.frame(y_train = y_train, X_train), family = binomial)
+log_base_prob <- predict(log_base, newdata = data.frame(X_test), type = "response")
+
+log_base_pred <- factor(ifelse(log_base_prob >= 0.5, "Yes", "No"), levels = c("No", "Yes"))
+confusionMatrix(log_base_pred, y_test, positive = "Yes")
+```
+
+With a Kappa of 22% and a sensitivity of 80% this model is not excellent, but does a reasonable job at identifying students with a high alcohol consumption.
+
+Because the stacked model will later use the raw predicted probabilities from each first level model, optimizing the classification threshold for logistic regression would not improve its contribution to the stack (threshold tuning only affects the hard class labels, not the probability estimates). 
+
+Instead, we focus on improving the underlying probability predictions themselves by performing a backward stepwise regression.
+This iteratively removes variables one at a time from the full model containing all predictors based on an information criterion. At each step, the algorithm drops the least useful predictor, refits the model, and continues this process until removing additional predictors no longer improves the overall model fit. The goal is to retain a parsimonious set of predictors that yields better probability estimates and reduces overfitting.
+
+```{r}
+log_full <- glm(
+  y_train ~ ., 
+  data = data.frame(y_train = y_train, X_train), 
+  family = binomial
+)
+
+log_step <- step(log_full, direction = "backward", trace = 0)
+
+log_step_prob <- predict(log_step, newdata = data.frame(X_test), type = "response")
+
+log_step_pred <- factor(ifelse(log_step_prob >= 0.5, "Yes", "No"),
+                        levels = c("No", "Yes"))
+
+confusionMatrix(log_step_pred, y_test, positive = "Yes")
+```
+
+The stepwise model performs slightly worse than the baseline logistic regression when using a 0.5 classification threshold. 
+Kappa decreases by about 5%, while sensitivity and accuracy fall by roughly 2%. 
+
+However, this decline is not necessarily problematic. The baseline model includes all predictors and is therefore more susceptible to overfitting, especially given the large number of dummy variables. Therefore, its initial performance may be somewhat inflated. 
+
+In contrast, backward stepwise regression removes less informative predictors and can yield more stable probability estimates, which is often more valuable for stacking. Since the meta-learner uses raw predicted probabilities rather than thresholded class labels, the stepwise logistic regression may still contribute useful, non-redundant information. For this reason, we retain the stepwise model as the logistic component in the stacked ensemble.
+
+### B - Support Vector Machine (SVM)
+
+Next, we fit three Support Vector Machine classifiers using different kernels: linear (Vanilla), radial basis function (RBF), and polynomial. 
+All models use cost = 1 and, because the predictors were previously scaled, the margin-based optimization of SVMs is well-behaved.
+
+```{r}
+set.seed(12345)
+
+svm_linear <- svm(
+  y_train ~ .,
+  data = data.frame(y_train, X_train),
+  kernel = "linear",
+  cost = 1,
+  probability = TRUE
+)
+
+svm_rbf <- svm(
+  y_train ~ .,
+  data = data.frame(y_train, X_train),
+  kernel = "radial",
+  cost = 1,
+  probability = TRUE
+)
+
+svm_poly <- svm(
+  y_train ~ .,
+  data = data.frame(y_train, X_train),
+  kernel = "polynomial",
+  degree = 2,
+  cost = 1,
+  probability = TRUE
+)
+
+pred_linear <- predict(svm_linear, data.frame(X_test))
+pred_rbf    <- predict(svm_rbf,    data.frame(X_test))
+pred_poly   <- predict(svm_poly,   data.frame(X_test))
+
+cm_linear <- confusionMatrix(pred_linear, y_test, positive = "Yes")
+cm_rbf    <- confusionMatrix(pred_rbf,    y_test, positive = "Yes")
+cm_poly   <- confusionMatrix(pred_poly,   y_test, positive = "Yes")
+
+kappas <- c(
+  Linear = as.numeric(cm_linear$overall["Kappa"]),
+  RBF = as.numeric(cm_rbf$overall["Kappa"]),
+  Polynomial = as.numeric(cm_poly$overall["Kappa"])
+)
+
+best_model_name <- names(which.max(kappas))
+
+if (best_model_name == "Linear") best_cm <- cm_linear
+if (best_model_name == "RBF") best_cm <- cm_rbf
+if (best_model_name == "Polynomial") best_cm <- cm_poly
+
+best_cm
+
+svm_results <- data.frame(
+  Model = names(kappas),
+  Kappa = kappas
+)
+
+ggplot(svm_results,
+       aes(x = reorder(Model, -Kappa), y = Kappa)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Kappa comparison for SVM kernels",
+    x = "Model",
+    y = "Kappa"
+  ) +
+  theme_minimal()
+
+extract_yes <- function(model, newdata) {
+  p_raw <- predict(model, newdata, probability = TRUE)
+  prob  <- attr(p_raw, "probabilities")
+  if ("Yes" %in% colnames(prob)) prob[, "Yes"] else 1 - prob[, "No"]
+}
+
+svm_lin_prob_all  <- extract_yes(svm_linear, data.frame(X_test))
+svm_rbf_prob_all  <- extract_yes(svm_rbf,    data.frame(X_test))
+svm_poly_prob_all <- extract_yes(svm_poly,   data.frame(X_test))
+```
+
+Among the three SVM kernels, the linear model performs best on the test set. 
+Its confusion matrix shows an accuracy of approximately 66% and a Kappa of 24%, which represents modest but meaningful agreement beyond chance. Sensitivity reaches 78%, making the linear SVM reasonably effective at identifying students with high alcohol consumption. 
+Specificity is weaker at 44%, which is consistent with the class imbalance and our emphasis on detecting high-risk cases. 
+Overall, the linear kernel offers the most balanced performance of the three SVM variants and is therefore the strongest standalone SVM in this comparison.
+
+### C - K-Nearest-Neighbour
+
+To evaluate the KNN classifier, we tested a range of odd values for k from 1 to 31. Each value of k was used to generate predictions on the test set, and performance was assessed using Kappa to remain consistent with earlier model comparisons.
+
+```{r}
+set.seed(12345)
+
+k_values <- seq(1, 31, by = 2)
+kappa_scores <- numeric(length(k_values))
+conf_mats <- vector("list", length(k_values))
+
+for (i in seq_along(k_values)) {
+  k <- k_values[i]
+  
+  pred <- knn(
+    train = X_train,
+    test = X_test,
+    cl = y_train,
+    k = k
+  )
+  
+  cm <- confusionMatrix(pred, y_test, positive = "Yes")
+  conf_mats[[i]] <- cm
+  kappa_scores[i] <- as.numeric(cm$overall["Kappa"])
+}
+
+kappa_df <- data.frame(
+  k = k_values,
+  Kappa = kappa_scores
+)
+
+ggplot(kappa_df, aes(x = k, y = Kappa)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 2) +
+  labs(
+    title = "Kappa as a Function of k (KNN)",
+    x = "k (Number of Neighbors)",
+    y = "Kappa"
+  ) +
+  theme_minimal()
+
+best_index <- which.max(kappa_scores)
+best_k <- k_values[best_index]
+best_cm <- conf_mats[[best_index]]
+
+best_k
+```
+
+The best value of k according to Kappa is 1, which produces the highest agreement score among all tested options. However, k = 1 is well known to be highly variance-prone and sensitive to noise, especially in datasets with many predictors. This makes overfitting likely. 
+
+Hence, we will instead compare candidate values using the Area Under the ROC Curve (AUC) - metric, which measures how well a model ranks positive cases above negative ones across all possible classification thresholds.
+
+```{r}
+set.seed(12345)
+
+k_values <- seq(1, 31, by = 2)
+auc_scores <- numeric(length(k_values))
+cms <- vector("list", length(k_values))
+probs_list <- vector("list", length(k_values))
+
+for (i in seq_along(k_values)) {
+  k <- k_values[i]
+
+  pred <- knn(
+    train = X_train,
+    test  = X_test,
+    cl    = y_train,
+    k     = k,
+    prob  = TRUE
+  )
+
+  pred_prob <- ifelse(pred == "Yes",
+                      attr(pred, "prob"),
+                      1 - attr(pred, "prob"))
+
+  auc_scores[i] <- auc(as.numeric(y_test == "Yes"), pred_prob)
+  cms[[i]] <- confusionMatrix(pred, y_test, positive = "Yes")
+  probs_list[[i]] <- pred_prob
+}
+
+best_index <- which.max(auc_scores)
+best_k <- k_values[best_index]
+
+best_cm <- cms[[best_index]]
+knn_prob_all <- probs_list[[best_index]]
+
+best_k
+best_cm
+
+auc_df <- data.frame(k = k_values, AUC = auc_scores)
+
+ggplot(auc_df, aes(x = k, y = AUC)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal()
+```
+
+The AUC plot shows that the best-performing value is k = 5. This aligns with the expectation that very small values of k overfit: while k = 1 produced the highest Kappa, its AUC is lower, indicating weaker ranking ability. By contrast, k = 5 smooths out local noise, reduces variance, and yields the most reliable probability estimates among all tested values.
+
+Selecting k = 5 therefore provides a better balance between underfitting and overfitting. The corresponding KNN model is more stable and produces higher-quality probability predictions, which is essential for its role in the stacked ensemble.
+
+This model reached an accuracy of 57% with a Sensitivity of 73% and a Kappa of only 4%. This is not very satisfactory, however it might still add value when combined with the other four models inside the meta-learner.
+
+
+### Combined Model (Stacked)
+
+To combine the strengths of the individual models, we build a stacked classifier that uses the first-level predicted probabilities as inputs to a second-level Decision Tree model.
+
+A decision tree is especially useful as a meta-learner, because it can learn non-linear combinations, conditional rules, and model-specific interactions (e.g., trusting the linear SVM more when its probability is above 0.66, but switching to KNN or RBF in other regions), while for example a simple average of the five model probabilities would assume all base models to contribute equally and linearly. 
+In practice, different learners capture different structures, and their errors are not uniform. This flexibility lets the meta-learner weight models differently depending on the probability pattern, which averaging cannot do.
+
+First, the original test set is split into two parts: 70% for training the meta-learner and 30% for its final evaluation. This ensures that the second-level model is trained only on data that was not used for fitting the base learners, while still preserving a fully unseen subset for an unbiased assessment.
+
+We then construct the stacking datasets. Each row now contains the probability of “Yes” predicted by the five first-level models (stepwise logistic regression, three SVM kernels, and KNN), along with the true outcome for the meta-training set.
+
+In line with the assignment instructions, the second-level model uses these raw probability values rather than binary class labels.
+As the meta-learner, we fit a simple decision tree using rpart. The tree is intentionally kept relatively shallow (via cp = 0.01) to maintain interpretability and to avoid overfitting to the meta-training set.
+
+```{r}
+set.seed(12345)
+
+test_n <- length(y_test)
+meta_train_index <- sample(seq_len(test_n), size = 0.7 * test_n)
+meta_test_index  <- setdiff(seq_len(test_n), meta_train_index)
+
+stack_train <- data.frame(
+  log     = log_step_prob[meta_train_index],
+  svm_lin = svm_lin_prob_all[meta_train_index],
+  svm_rbf = svm_rbf_prob_all[meta_train_index],
+  svm_poly= svm_poly_prob_all[meta_train_index],
+  knn     = knn_prob_all[meta_train_index],
+  alc     = y_test[meta_train_index]
+)
+
+stack_test <- data.frame(
+  log     = log_step_prob[meta_test_index],
+  svm_lin = svm_lin_prob_all[meta_test_index],
+  svm_rbf = svm_rbf_prob_all[meta_test_index],
+  svm_poly= svm_poly_prob_all[meta_test_index],
+  knn     = knn_prob_all[meta_test_index]
+)
+
+dt_simple <- rpart(
+  alc ~ .,
+  data = stack_train,
+  method = "class",
+  control = rpart.control(cp = 0.01)
+)
+
+dt_pred <- predict(dt_simple, stack_test, type = "class")
+
+confusionMatrix(dt_pred, y_test[meta_test_index], positive = "Yes")
+
+rpart.plot(dt_simple)
+
+```
+
+The decision tree illustrates how the meta-learner combines the base models: the linear SVM drives the first split, indicating it provides the strongest single signal, and the tree then adjusts decisions using contributions from the RBF SVM, polynomial SVM, KNN, and logistic regression. This structure shows how the stacked model adapts to different combinations of probabilities, improving predictive stability compared to any single model.
+
+As the confusion matrix shows, the stacked model outperforms all of the previous models. With a Kappa of 28% and a Sensitivity of 81%. The stacked model correctly identifies most students with high alcohol consumption, which the base models did not achieve. Accuracy is moderate at 68% and Specificity is lower at around 46%, which is consistent with emphasizing detection of the positive class. 
+
+Overall, the stacked classifier improves the model’s ability to flag high-risk students while maintaining reasonable performance on the negative class.
+
+The findings are further gathered in the following:
+
+```{r}
+extract_metrics <- function(cm) {
+  data.frame(
+    Accuracy   = cm$overall["Accuracy"],
+    Kappa      = cm$overall["Kappa"],
+    Sensitivity = cm$byClass["Sensitivity"],
+    Specificity = cm$byClass["Specificity"],
+    Balanced_Accuracy = cm$byClass["Balanced Accuracy"]
+  )
+}
+
+metrics_table <- rbind(
+  Logistic_Stepwise = extract_metrics(confusionMatrix(log_step_pred, y_test, positive = "Yes")),
+  SVM_Linear        = extract_metrics(cm_linear),
+  SVM_RBF           = extract_metrics(cm_rbf),
+  SVM_Poly          = extract_metrics(cm_poly),
+  KNN_k5            = extract_metrics(best_cm),
+  Stacked_Model     = extract_metrics(confusionMatrix(dt_pred, y_test[meta_test_index], positive = "Yes"))
+)
+
+round(metrics_table, 3)
+```
+
+### Weighing the Stacked Model
+
+When training the second-level decision tree, we can incorporate a cost matrix to reflect that certain classification errors are more serious than others. Using such a matrix changes the model’s behavior: the decision tree becomes more conservative about predicting “No” and shifts probability thresholds so that positive cases are captured more aggressively. As a result, sensitivity typically increases while specificity decreases. This aligns the model with practical priorities—avoiding missed high-risk students—even if it produces more false alarms.
+
+In this setting, misclassifying a student who actually has high alcohol consumption (a false negative) can be considered more costly than incorrectly flagging a low-consumption student (a false positive). 
+A cost matrix explicitly encodes this asymmetry by assigning a higher penalty to false negatives than to false positives. We want to show this by assigning a FP:FN-penatly-ratio of 4:1 to the prediction.
+
+```{r}
+cost_matrix <- matrix( c(0, 4, 1, 0), nrow = 2)
+
+dt_cost <- rpart(
+  alc ~ .,
+  data = stack_train,
+  method = "class",
+  parms = list(loss = cost_matrix)
+)
+
+dt_cost_pred <- predict(dt_cost, stack_test, type = "class")
+
+confusionMatrix(dt_cost_pred, y_test[meta_test_index], positive = "Yes")
+
+rpart.plot(dt_cost)
+```
+
+Compared with the original stacked tree, sensitivity increases slightly from about 0.81 to 0.84, but specificity drops from roughly 0.46 to 0.29, and both Kappa and balanced accuracy worsen (e.g. Kappa falls from 0.28 to 0.14).
+In other words, the cost matrix succeeds in further reducing missed high-risk students but at a noticeable price in overall discrimination and in the number of low-risk students flagged. Given the assignment’s emphasis on sensitivity, this behavior is directionally consistent with the stated priorities, but the degradation in Kappa and balanced accuracy suggests that the non–cost-sensitive stacked tree may offer a better overall trade-off if we also care about correctly identifying low-risk students.
+
+Because the appropriate weighting of these errors is ultimately subjective and depends on institutional priorities, I evaluated both approaches and chose to retain the unweighted stacked model, which provides a more balanced and reliable set of performance metrics while still achieving high sensitivity. Overall, building a second-level decision tree on top of the first-level models was effective: the stack meaningfully improved predictive stability and leveraged complementary strengths across the logistic, SVM, and KNN learners.
+
+# Part 2: Implementing the Prediction Model
+
+## A
+
+#### General Discussion
+
+If students overstated their alcohol consumption to gain access to desirable awareness events, the labels in the dataset no longer represent true drinking behavior but rather an incentive-driven reporting pattern. 
+
+Under this reversed bias, the model learns to predict who is likely to claim high consumption, not who actually consumes alcohol at a high level. 
+
+As a result, the apparent strength of the model’s sensitivity is misleading, because many predicted positives are in fact low-consumption students who misreported. At the same time, the model’s low specificity would underestimate its true ability to distinguish genuinely low-risk students, since the training data incorrectly labels many of them as high consumption. 
+
+Any interpretation of variable importance or decision rules would describe patterns in self-reported exaggeration rather than real alcohol use. Consequently, although the stacked model appears to perform reasonably well on the biased labels, its outputs cannot be used to make meaningful real-world risk assessments without collecting unbiased ground-truth data.
+
+#### Would a mirrored cost matrix be useful?
+
+At first glance, one might consider reversing the cost matrix to penalize false negatives more heavily under the new bias pattern. However, because students are overreporting, the labels no longer reflect true consumption. A cost matrix only helps when labels represent the real condition of interest; here they do not. Mirroring the matrix would simply optimize toward incorrect labels and would not recover true risk.
+
+#### Should we explore other approaches such as K-means clustering?
+
+It may seem reasonable to switch to an unsupervised approach like K-means when labels are unreliable. The problem, however, is that clustering does not guarantee alignment with real alcohol-use patterns—clusters reflect similarities in predictors, not actual consumption. This does not address the misreporting issue and therefore does not fix the core problem.
+
+#### How could the survey be reconstructed?
+The survey would need to remove incentives for exaggeration by ensuring strict anonymity, separating responses from access to events, or validating responses with external measures. Only with unbiased labels can a predictive model learn meaningful patterns.
+
+#### Should awareness initiatives be revised?
+
+Yes. If the initiative creates incentives to misreport, it should be redesigned so participation does not depend on claiming high consumption. Aligning incentives with honest reporting is essential; otherwise, any analytical model will continue to learn distorted signals.
+
+## B
+
+To identify which of the five candidates is safest to send to the UN Student Assembly, we simply inspect their reported alcohol-consumption category in the dataset. Since the model predictions depend on labels that may be biased, the most transparent first step is to view each student’s actual survey response (high vs. low consumption) before deciding whom to send.
+
+```{r}
+students <- c(12, 37, 123, 375, 512)
+spor[students, c("alc")]
+```
+
+This means that three students (12, 37, 512) reported low alcohol consumption, while two students (123 and 375) reported high consumption. These reported labels provide a first indication of risk, but—as discussed earlier—they may be biased. Therefore, we evaluate all five using the unweighted stacked model to make a more reliable selection for the UN trip.
+
+```{r}
+
+X_students <- X[students, ]
+
+alc_original <- ifelse(y[students] == "Yes", 1, 0)
+
+log_pred <- predict(log_step, data.frame(X_students), type = "response")
+
+svm_lin_pred  <- extract_yes(svm_linear,  data.frame(X_students))
+svm_rbf_pred  <- extract_yes(svm_rbf,     data.frame(X_students))
+svm_poly_pred <- extract_yes(svm_poly,    data.frame(X_students))
+
+knn_raw <- knn(
+  train = X_train,
+  test  = X_students,
+  cl    = y_train,
+  k     = best_k,
+  prob  = TRUE
+)
+
+knn_pred <- ifelse(
+  knn_raw == "Yes",
+  attr(knn_raw, "prob"),
+  1 - attr(knn_raw, "prob")
+)
+
+stack_students <- data.frame(
+  log     = log_pred,
+  svm_lin = svm_lin_pred,
+  svm_rbf = svm_rbf_pred,
+  svm_poly= svm_poly_pred,
+  knn     = knn_pred
+)
+
+stack_prob <- predict(dt_simple, stack_students, type = "prob")[, "Yes"]
+
+final_predictions <- data.frame(
+  Student = students,
+  Alc_Reported = alc_original,
+  LogReg = round(log_pred, 3),
+  SVM_Linear = round(svm_lin_pred, 3),
+  SVM_RBF = round(svm_rbf_pred, 3),
+  SVM_Poly = round(svm_poly_pred, 3),
+  KNN = round(knn_pred, 3),
+  Final_Stacked = round(stack_prob, 3)
+)
+
+final_predictions
+```
+
+The unweighted stacked model assigns each of the five students a predicted probability of high alcohol consumption. Lower values indicate lower estimated risk. Based on the final stacked probabilities, Student 37 (0.182) has the lowest predicted risk, followed by Student 123 (0.333). Students 12 and 375 have moderate risk estimates (0.625), and Student 512 shows the highest risk at 0.800.
+
+Even though Students 123 and 375 originally reported high consumption, the stacked model suggests that Student 123 poses a comparatively lower risk than the others in that subgroup. 
+
+Considering these probabilities, the two students who appear safest to send to the UN event are Student 37 (Bob) and Student 123 (Charlie).

@@ -1,0 +1,90 @@
+---
+title: "data_cleaning_splitting"
+output: html_document
+---
+
+## Step 1 - Load Data
+```{r}
+# Load Data
+hotel <- read.csv("hotel_bookings_updated_2024.csv", stringsAsFactors = TRUE)
+```
+
+## Step 2 Clean Data
+
+```{r}
+# Select only one hotel
+selected_hotels <- hotel[hotel$hotel == "City Hotel - Ahmedabad", ]
+
+# Drop uninformative columns
+drop_cols <- c("company", "hotel", "arrival_date_year",
+               "reservation_status_date", "reservation_status")
+selected_hotels[drop_cols] <- NULL
+```
+
+```{r}
+# Remove NAs
+clean_hotels <- na.omit(selected_hotels)
+```
+
+```{r}
+# Separate Outcomes
+y <- clean_hotels$is_canceled
+clean_hotels$is_canceled <- NULL
+```
+
+```{r}
+# One-hot encoding
+hotels_dummy <- as.data.frame(model.matrix(~ . - 1, data = clean_hotels))
+```
+
+```{r}
+# Train/test split before scaling
+trainprop <- 0.6
+set.seed(12345)
+train_idx <- sample(1:nrow(hotels_dummy), trainprop * nrow(hotels_dummy))
+
+X_train <- hotels_dummy[train_idx, ]
+X_test  <- hotels_dummy[-train_idx, ]
+y_train <- y[train_idx]
+y_test  <- y[-train_idx]
+```
+
+```{r}
+# Scale using training set statistics
+minmax <- function(x) {
+  rng <- range(x, na.rm = TRUE)
+  if (rng[1] == rng[2]) return(rep(0, length(x)))
+  (x - rng[1]) / (rng[2] - rng[1])
+}
+
+scale_params <- lapply(X_train, function(x) {
+  rng <- range(x, na.rm = TRUE)
+  list(min = rng[1], max = rng[2])
+})
+
+X_train_scaled <- as.data.frame(mapply(function(col, params) {
+  if (params$min == params$max) return(rep(0, length(col)))
+  (col - params$min) / (params$max - params$min)
+}, X_train, scale_params, SIMPLIFY = FALSE))
+
+X_test_scaled <- as.data.frame(mapply(function(col, params) {
+  if (params$min == params$max) return(rep(0, length(col)))
+  (col - params$min) / (params$max - params$min)
+}, X_test, scale_params, SIMPLIFY = FALSE))
+```
+
+```{r}
+# Reattach outcome
+df_train <- cbind(is_canceled = y_train, X_train_scaled)
+df_test  <- cbind(is_canceled = y_test, X_test_scaled)
+```
+
+```{r}
+# Write files
+write.csv(df_train, "hotel_train.csv", row.names = FALSE)
+write.csv(df_test,  "hotel_test.csv",  row.names = FALSE)
+
+cat("Train samples:", nrow(df_train), "\n")
+cat("Test samples: ", nrow(df_test),  "\n")
+```
+

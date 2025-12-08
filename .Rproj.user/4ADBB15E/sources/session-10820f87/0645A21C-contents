@@ -1,0 +1,61 @@
+---
+title: "testRF"
+output: html_document
+---
+
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(C50)
+library(randomForest)
+library(e1071)
+library(class)
+```
+
+
+```{r cunk, cache=TRUE}
+# --------------------------------------------------
+# Load precomputed probabilities from first-level models
+# --------------------------------------------------
+
+setwd("../")
+source("data/data_cleaning_splitting.R")
+source("models/cost_optimized_RF.R")
+```
+
+
+```{r}
+best_params
+final_cm
+
+ggplot(param_grid, aes(x = ntree, y = AvgCost,
+                       color = nodesize, group = nodesize)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  labs(
+    title = "Average Cost Across Random Forest Hyperparameters",
+    subtitle = "Cost Matrix: FP = 1200, FN = 500",
+    x = "Number of Trees (ntree)",
+    y = "Average Cost per Booking",
+    color = "nodesize"
+  )
+
+############################################################
+# PLOT 2: Heatmap of cost (fast & very informative)
+############################################################
+
+ggplot(param_grid, aes(x = ntree, y = nodesize, fill = AvgCost)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c() +
+  theme_minimal() +
+  labs(
+    title = "Cost Heatmap Over ntree × nodesize",
+    subtitle = "Darker = Lower Cost",
+    x = "ntree",
+    y = "nodesize (min leaf size)",
+    fill = "AvgCost"
+  )
+```
+

@@ -1,0 +1,1312 @@
+---
+title: "HW#5 Predicting Alcoholism"
+author: "X, Y"
+date: "2025-11-06"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    highlight: tango
+    theme: simplex
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+![](image.png)
+
+```{r}
+library(skimr)
+library(glmnet)
+library(tidyverse)
+library(caret)
+library(fastDummies)
+library(class)
+library(ggplot2)
+library(scales)
+library(C50)
+library(neuralnet)
+library(e1071)
+library(vip)
+library(randomForest)
+library(pROC)
+library(kernlab)
+library(rpart)
+library(rpart.plot)
+library(ranger)
+library(reshape2)
+```
+
+
+# Step 0: Why
+
+This project aims to build a model that can identify students who are likely to show higher levels of alcohol use. The importance of this work goes beyond achieving high accuracy in predictions. The primary goal is to support early identification of students who may be at risk, allowing schools and support systems to take action before more serious issues develop.
+Alcohol misuse among students can affect academic performance, relationships, mental health, and long-term well-being. Early detection is key to providing timely help, whether through counseling, education, or additional support services. A model that can flag potential risk cases can be a valuable tool for school counselors, health professionals, and educators. It offers a data-informed way to guide attention and resources where they might be needed most.
+The model can help school counselors prioritize students for check-ins, support public health workers in planning targeted intervention programs, and give school administrators insights into behavioral trends among students. It can also contribute to research on prevention strategies and student health.
+This approach also recognizes that the cost of missing a student who is truly at risk is higher than mistakenly flagging a student who is not. Therefore, the model is designed with a focus on sensitivity, to reduce the chance of false negatives even if it means allowing for more false positives. This trade-off is important in a practical setting where early intervention can make a significant difference in a young person’s life.
+In applying this model, it is essential to consider privacy, fairness, and human oversight. The predictions should support professionals, not replace them, and should always be used with care and responsibility.
+
+
+# Step 1 and 2: Load and Clean Data
+
+```{r}
+spor <- read.csv("spor.csv", stringsAsFactors = TRUE)
+
+str(spor)
+summary(spor)
+
+spor$Medu <- dplyr::recode(spor$Medu,
+                           `0` = 0,
+                           `1` = 5,
+                           `2` = 8,
+                           `3` = 12,
+                           `4` = 16)
+
+spor$Fedu <- dplyr::recode(spor$Fedu,
+                           `0` = 0,
+                           `1` = 5,
+                           `2` = 8,
+                           `3` = 12,
+                           `4` = 16)
+
+spor$alc <- factor(ifelse(spor$alc == 1, "Yes", "No"), levels = c("No","Yes"))
+
+```
+
+The dataset was loaded and checked to understand its size, variable types, and general quality. It includes six hundred forty nine students and a mix of demographic, family, lifestyle, and performance variables. Most fields were already usable, but a few required adjustment. Parental education was originally coded from zero to four without any clear meaning, so these values were recoded into approximate years of schooling to put them on a realistic numeric scale. The alcohol use variable was also converted into a simple yes or no factor so the modelling task is clearly defined as a two class classification. With these changes, the data is consistent, interpretable, and ready for the modelling steps that follow. We didn’t include health as a factor because the study used a 1-to-5 scale, which we assumed was evenly distributed, so we kept it as a numerical variable.
+
+# Step 3: Split the Data
+
+```{r}
+trainprop <- 0.5
+
+set.seed(12345)
+
+train_rows <- sample(1:nrow(spor), trainprop * nrow(spor))
+
+spor_train <- spor[train_rows,]
+spor_test <- spor[-train_rows,]
+
+prop.table(table(spor_train$alc))
+
+```
+
+We created an initial split of the data, using a 50% training set and a 50% test set. This first test set gives us an independent benchmark for evaluating all first level models before we move on to stacking. We chose a 50/50 split because we want to keep enough untouched data for a separate 70/30 split later when we build the stacked model. This approach ensures that the meta model is evaluated on data that has not been involved in any earlier modelling steps.
+After the split, the training set contains about 61% yes cases and 39% no cases. This imbalance is important because a model that predicts yes for every student would still reach roughly 61% accuracy without learning anything useful. Because of that, we rely on metrics beyond simple accuracy when assessing model performance.
+
+# Step 4, 5, 6: Building, Predicting, and Evaluating Models
+
+We developed a broad set of individual models to understand how different approaches handle the prediction task. We trained and tuned models across several categories including Random Forest, logistic regression, KNN, decision trees, neural networks, and SVM. For each category we optimized hyperparameters, selected the best performing version, and evaluated it on the same 50% test set. This gives us one strong candidate model from each family, which we later use as inputs for the stacked model. This structure ensures that the meta learner receives the most informative predictions each method can provide.
+
+## A - Random Forest Model
+
+```{r}
+set.seed(12345)
+
+ntree_values = c(500, 1000, 1500, 2000)
+nodesize_values = c(5, 10, 15, 20)
+
+param_grid = expand.grid(
+  ntree = ntree_values,
+  nodesize = nodesize_values,
+  stringsAsFactors = FALSE
+)
+
+param_grid$kappa = NA_real_
+
+cm_2000_10 = NULL
+
+for (i in seq_len(nrow(param_grid))) {
+  nt = param_grid$ntree[i]
+  ns = param_grid$nodesize[i]
+  
+  model = randomForest(
+    as.factor(alc) ~ .,
+    data = spor_train,
+    ntree = nt,
+    nodesize = ns
+  )
+  
+  preds = predict(model, newdata = spor_test, type = "class")
+  
+  cm = confusionMatrix(
+    preds,
+    spor_test$alc,
+    positive = "Yes"
+  )
+  
+  k = as.numeric(cm$overall["Kappa"])
+  param_grid$kappa[i] = k
+  
+  if (nt == 1000 && ns == 10) {
+    cm_2000_10 = cm
+  }
+}
+
+results = na.omit(param_grid)
+
+best = results[which.max(results$kappa), , drop = FALSE]
+
+print(results)
+print(best)
+
+ggplot(
+  results,
+  aes(
+    x = ntree,
+    y = kappa,
+    group = factor(nodesize),
+    color = factor(nodesize)
+  )
+) +
+  geom_point() +
+  geom_line() +
+  labs(
+    title = "Kappa by ntree and nodesize",
+    x = "ntree",
+    y = "Kappa",
+    color = "nodesize"
+  )
+
+best_ntree = best$ntree
+best_nodesize = best$nodesize
+
+optimal_model = randomForest(
+  as.factor(alc) ~ .,
+  data = spor_train,
+  ntree = best_ntree,
+  nodesize = best_nodesize
+)
+
+optimal_preds = predict(optimal_model, newdata = spor_test, type = "class")
+
+optimal_cm = confusionMatrix(
+  optimal_preds,
+  spor_test$alc,
+  positive = "Yes"
+)
+
+print(cm_2000_10)
+```
+
+We started by tuning a Random Forest model to understand how tree count and terminal node size influence performance. We ran a grid of ntree values {500, 1000, 1500, 2000} and nodesize values {5, 10, 15, 20}. For each combination we trained a model on the 50% training set and evaluated it on the 50% test set using Cohen’s kappa as the main metric. Kappa is especially useful here since it adjusts for the underlying class imbalance and provides a more realistic picture than accuracy alone.
+
+After evaluating all configurations, the best model used ntree = 2000 and nodesize = 10. This model reached an accuracy of 66% and a kappa of 22%. The sensitivity was 82%, which means the model correctly identified a large share of the yes cases. Given the imbalance in the data and the project goal of identifying students who are more at risk, this performance pattern is expected and acceptable at this stage.
+
+## B - Logistic Regression
+
+```{r}
+log_model <- glm(alc ~ ., data = spor_train, family = binomial)
+
+log_prob <- predict(log_model, newdata = spor_test, type = "response")
+
+log_pred_class <- factor(ifelse(log_prob >= 0.6724198, "Yes", "No"),
+  levels = c("No","Yes"))
+
+cm_log <- confusionMatrix(log_pred_class, spor_test$alc, positive = "Yes")
+cm_log
+```
+
+We first estimated a basic logistic regression model that includes all predictors in order to establish a reference point for the rest of the analysis. After fitting the model we tuned the classification threshold with the goal of maximizing kappa. This gave us a clearer picture of how well a simple linear model can separate the yes and no classes. 
+
+With this baseline established, we explore more advanced variations within the logistic family to see whether any of them can improve on the initial result.
+
+```{r}
+
+optimize_threshold <- function(probs, truth) {
+  thr <- seq(0, 1, 0.01)
+  kappas <- sapply(thr, function(t) {
+    pred <- factor(ifelse(probs >= t, "Yes", "No"), levels = c("No","Yes"))
+    confusionMatrix(pred, truth, positive = "Yes")$overall["Kappa"]
+  })
+  thr[which.max(kappas)]
+}
+
+log_base <- glm(alc ~ ., data = spor_train, family = binomial)
+prob_base <- predict(log_base, newdata = spor_test, type = "response")
+thr_base <- optimize_threshold(prob_base, spor_test$alc)
+pred_base <- factor(ifelse(prob_base >= thr_base, "Yes", "No"), levels = c("No","Yes"))
+kappa_base <- confusionMatrix(pred_base, spor_test$alc, positive = "Yes")$overall["Kappa"]
+
+log_step <- step(glm(alc ~ ., data = spor_train, family = binomial), trace = 0)
+prob_step <- predict(log_step, newdata = spor_test, type = "response")
+thr_step <- optimize_threshold(prob_step, spor_test$alc)
+pred_step <- factor(ifelse(prob_step >= thr_step, "Yes", "No"), levels = c("No","Yes"))
+kappa_step <- confusionMatrix(pred_step, spor_test$alc, positive = "Yes")$overall["Kappa"]
+
+x_train <- model.matrix(alc ~ ., data = spor_train)[, -1]
+y_train <- ifelse(spor_train$alc == "Yes", 1, 0)
+x_test <- model.matrix(alc ~ ., data = spor_test)[, -1]
+
+cv_ridge <- cv.glmnet(x_train, y_train, family = "binomial", alpha = 0)
+prob_ridge <- as.vector(predict(cv_ridge, newx = x_test, s = "lambda.min", type = "response"))
+thr_ridge <- optimize_threshold(prob_ridge, spor_test$alc)
+pred_ridge <- factor(ifelse(prob_ridge >= thr_ridge, "Yes", "No"), levels = c("No","Yes"))
+kappa_ridge <- confusionMatrix(pred_ridge, spor_test$alc, positive = "Yes")$overall["Kappa"]
+
+cv_lasso <- cv.glmnet(x_train, y_train, family = "binomial", alpha = 1)
+prob_lasso <- as.vector(predict(cv_lasso, newx = x_test, s = "lambda.min", type = "response"))
+thr_lasso <- optimize_threshold(prob_lasso, spor_test$alc)
+pred_lasso <- factor(ifelse(prob_lasso >= thr_lasso, "Yes", "No"), levels = c("No","Yes"))
+kappa_lasso <- confusionMatrix(pred_lasso, spor_test$alc, positive = "Yes")$overall["Kappa"]
+
+cv_enet <- cv.glmnet(x_train, y_train, family = "binomial", alpha = 0.5)
+prob_enet <- as.vector(predict(cv_enet, newx = x_test, s = "lambda.min", type = "response"))
+thr_enet <- optimize_threshold(prob_enet, spor_test$alc)
+pred_enet <- factor(ifelse(prob_enet >= thr_enet, "Yes", "No"), levels = c("No","Yes"))
+kappa_enet <- confusionMatrix(pred_enet, spor_test$alc, positive = "Yes")$overall["Kappa"]
+
+results <- data.frame(
+  Model = c("Base", "Stepwise", "Ridge", "Lasso", "ElasticNet"),
+  Kappa = c(kappa_base, kappa_step, kappa_ridge, kappa_lasso, kappa_enet),
+  Threshold = c(thr_base, thr_step, thr_ridge, thr_lasso, thr_enet)
+)
+
+results$Model <- factor(results$Model,
+                        levels = results$Model[order(results$Kappa, decreasing = TRUE)])
+
+print(results)
+
+ggplot(results, aes(Model, Kappa)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Logistic model comparison by Kappa", x = "Model", y = "Kappa")
+
+```
+
+As the graphic shows, testing elastic net, lasso, stepwise, and ridge versions (each paired with their own optimized threshold) none of the alternatives outperformed the original logistic regression.
+
+The baseline model reached an accuracy of 0.66, a kappa of 0.32, and a sensitivity of 0.61. This indicates a more balanced performance across classes compared with the Random Forest model, which produced a higher sensitivity but a much lower kappa. 
+
+The simple baseline specification is the best representative for the logistic regression category and will therefore be carried forward into the stacked model.
+
+
+## C - KNN
+
+```{r}
+## build dummy variables using training data only
+predictor_names = setdiff(names(spor_train), "alc")
+
+dv = dummyVars(~ ., data = spor_train[, predictor_names])
+
+dtrain = predict(dv, spor_train[, predictor_names])
+dtest  = predict(dv, spor_test[, predictor_names])
+
+## scale using training statistics
+train_scaled = scale(dtrain)
+test_scaled  = scale(
+  dtest,
+  center = attr(train_scaled, "scaled:center"),
+  scale  = attr(train_scaled, "scaled:scale")
+)
+
+## grid of k values to try
+k_values = seq(1, 51, by = 2)
+kappa_values = numeric(length(k_values))
+
+for (i in seq_along(k_values)) {
+  k_current = k_values[i]
+  pred_i = knn(
+    train = train_scaled,
+    test  = test_scaled,
+    cl    = spor_train$alc,
+    k     = k_current
+  )
+  cm = confusionMatrix(pred_i, spor_test$alc, positive = "Yes")
+  kappa_values[i] = cm$overall["Kappa"]
+}
+
+kappa_df = data.frame(
+  k = k_values,
+  Kappa = kappa_values
+)
+
+## best k by Kappa
+best_k = kappa_df$k[which.max(kappa_df$Kappa)]
+best_k
+
+ggplot(kappa_df, aes(x = k, y = Kappa)) +
+  geom_line() +
+  geom_point() +
+  geom_vline(xintercept = best_k, linetype = "dashed") +
+  labs(
+    title = "KNN performance by k measured with Kappa",
+    x = "k",
+    y = "Kappa"
+  ) +
+  theme_minimal()
+
+final_pred = knn(train = train_scaled, test = test_scaled, cl = spor_train$alc, k = best_k
+)
+
+best_k
+confusionMatrix(final_pred, spor_test$alc, positive = "Yes")
+
+```
+For the KNN approach we first converted all predictors to dummy variables and then scaled them using statistics from the training data. This keeps the distance calculations meaningful and avoids any leakage from the test set. We then searched over odd values of k from 1 to 51 and, for each value, fitted a model and recorded the kappa on the test set. The best performing setting was k equal to 29, which we then used as the final KNN model.
+
+At this best k the KNN model reached an accuracy of 0.62 and a kappa of 0.11. Sensitivity was 0.84, so the model captured a large share of the yes cases, but the low kappa and the McNemar test result suggest that this comes at the cost of many false positives and limited overall agreement beyond chance. Compared with the Random Forest and logistic regression models, KNN is clearly weaker and serves more as a complementary signal than a strong stand alone predictor for the stacked model.
+
+## D - Decision Trees
+
+```{r}
+train_dt <- spor_train
+test_dt  <- spor_test
+
+dt_model <- C5.0(alc ~ ., data = train_dt)
+
+pred_dt  <- predict(dt_model, test_dt)
+cm_dt    <- confusionMatrix(pred_dt, test_dt$alc, positive = "Yes")
+cm_dt
+```
+
+For the decision tree family we began with a basic C5 point zero model.
+We proceed by fitting a tuned C5 point zero model using 10 fold cross validation and ROC as the optimization metric. The tuning process explores different numbers of boosting trials and winnowing settings.
+
+### Improving the Decision Tree Model
+
+```{r}
+set.seed(12345)
+
+train_dt <- spor_train
+test_dt  <- spor_test
+
+ctrl <- trainControl(
+  method          = "cv",
+  number          = 10,
+  classProbs      = TRUE,
+  summaryFunction = twoClassSummary)
+
+dt_tuned <- train(
+  alc ~ .,
+  data      = train_dt,
+  method    = "C5.0",
+  metric    = "ROC",
+  trControl = ctrl,
+  tuneGrid  = expand.grid(
+    .model  = "tree",
+    .trials = c(1, 10, 20, 30),
+    .winnow = c(TRUE, FALSE)))
+
+pred_dt_tuned <- predict(dt_tuned, test_dt)
+cm_dt_tuned   <- confusionMatrix(pred_dt_tuned, test_dt$alc, positive = "Yes")
+cm_dt_tuned
+```
+
+This improved the model slightly, producing an accuracy of 0.62, a kappa of 0.15, and a sensitivity of 0.76.
+While still behind the Random Forest and logistic regression models, the tuned tree performs better than the baseline and provides a distinct type of decision boundary. For that reason it serves as the decision tree representative in the stacked model.
+
+## E - ANN
+
+```{r}
+dv        = dummyVars(alc ~ ., data = spor_train)
+x_train   = predict(dv, spor_train)
+x_test    = predict(dv, spor_test)
+
+pp        = preProcess(x_train, method = c("center", "scale"))
+x_train_s = predict(pp, x_train)
+x_test_s  = predict(pp, x_test)
+
+data_nn_train = data.frame(
+  alc = ifelse(spor_train$alc == "Yes", 1, 0),
+  x_train_s
+)
+
+y_test_factor = factor(spor_test$alc, levels = c("No", "Yes"))
+
+hidden_grid = list(
+  c(4),
+  c(6),
+  c(8),
+  c(6, 4),
+  c(8, 4),
+  c(10, 5)
+)
+
+results = lapply(seq_along(hidden_grid), function(i) {
+  h = hidden_grid[[i]]
+  
+  nn_fit = neuralnet(
+    alc ~ .,
+    data          = data_nn_train,
+    hidden        = h,
+    act.fct       = "logistic",
+    linear.output = FALSE,
+    stepmax       = 1e6
+  )
+  
+  nn_out    = compute(nn_fit, x_test_s)
+  prob_test = as.vector(nn_out$net.result)
+  
+  pred_num  = ifelse(prob_test > 0.5, 1, 0)
+  pred_fact = factor(ifelse(pred_num == 1, "Yes", "No"), levels = c("No", "Yes"))
+  
+  cm = confusionMatrix(pred_fact, y_test_factor)
+  
+  list(
+    hidden    = h,
+    model     = nn_fit,
+    accuracy  = cm$overall["Accuracy"],
+    cm_object = cm
+  )
+})
+
+accs        = sapply(results, function(res) res$accuracy)
+best_index  = which.max(accs)
+best_model  = results[[best_index]]$model
+best_cm     = results[[best_index]]$cm_object
+best_hidden = hidden_grid[[best_index]]
+
+print(
+  paste(
+    "Best hidden structure",
+    paste(best_hidden, collapse = " "),
+    "accuracy",
+    round(best_cm$overall["Accuracy"], 4)
+  )
+)
+
+plot(best_model)
+
+nn_out    = compute(best_model, x_test_s)
+prob_test = as.vector(nn_out$net.result)
+
+final_num  = ifelse(prob_test > 0.5, 1, 0)
+final_pred = factor(ifelse(final_num == 1, "Yes", "No"), levels = c("No", "Yes"))
+
+cm_final = confusionMatrix(final_pred, spor_test$alc, positive = "Yes")
+
+print(cm_final)
+```
+
+![](ANNgraphic.png)
+For the neural network family we prepared the data by converting all predictors into dummy variables and then centering and scaling them based on the training set. This ensures that every input contributes on a similar scale, which is important for models that rely on gradient based learning. The target variable was converted into a numeric signal where yes corresponds to 1 and no corresponds to 0.
+
+We then defined a set of possible hidden layer structures, ranging from a single layer with 4 to 8 units to two layer networks with combinations such as 6 and 4 or 10 and 5 units. Each structure was trained using a logistic activation function and a large step limit to allow the network to converge. After training each candidate we evaluated its accuracy on the test data and selected the configuration with the highest accuracy.
+
+The best network reached an accuracy of 65% and a kappa of 23% on the test set. Sensitivity was 75%, which shows that the model captures many of the yes cases, but overall it remains weaker than the Random Forest and logistic regression models. Still, the neural network provides a distinct type of predictive signal that may add value when combined with the other first level models in the stacked ensemble.
+
+## F - Support Vector Machine (SVM)
+
+```{r}
+svm_lin   <- svm(alc ~ ., data = spor_train, kernel = "linear",  cost = 1)
+svm_rad   <- svm(alc ~ ., data = spor_train, kernel = "radial",  cost = 1)
+svm_lin_c5 <- svm(alc ~ ., data = spor_train, kernel = "linear", cost = 5)
+
+p_lin    <- predict(svm_lin,   spor_test)
+p_rad    <- predict(svm_rad,   spor_test)
+p_lin_c5 <- predict(svm_lin_c5, spor_test)
+
+cm_lin    <- confusionMatrix(p_lin,    spor_test$alc, positive = "Yes")
+cm_rad    <- confusionMatrix(p_rad,    spor_test$alc, positive = "Yes")
+cm_lin_c5 <- confusionMatrix(p_lin_c5, spor_test$alc, positive = "Yes")
+
+kappa_e1071 <- data.frame(
+  Model = c("e1071_linear_cost1", "e1071_radial_cost1", "e1071_linear_cost5"),
+  Kappa = c(
+    as.numeric(cm_lin$overall["Kappa"]),
+    as.numeric(cm_rad$overall["Kappa"]),
+    as.numeric(cm_lin_c5$overall["Kappa"])
+  )
+)
+
+## kernlab SVM models with various kernels
+kern_list <- list(
+  list(name = "rbfdot_default",      kernel = "rbfdot",     kpar = "automatic"),
+  list(name = "rbfdot_sigma_small",  kernel = "rbfdot",     kpar = list(sigma = 0.01)),
+  list(name = "rbfdot_sigma_big",    kernel = "rbfdot",     kpar = list(sigma = 1)),
+  list(name = "laplacedot_default",  kernel = "laplacedot", kpar = "automatic"),
+  list(name = "polydot_deg2",        kernel = "polydot",    kpar = list(degree = 2, scale = 1, offset = 1)),
+  list(name = "polydot_deg3",        kernel = "polydot",    kpar = list(degree = 3, scale = 1, offset = 1)),
+  list(name = "vanilladot",          kernel = "vanilladot", kpar = NULL),
+  list(name = "tanhdot",             kernel = "tanhdot",    kpar = list(scale = 1, offset = 1)),
+  list(name = "besseldot",           kernel = "besseldot",  kpar = list(sigma = 1, order = 1, degree = 1)),
+  list(name = "splinedot",           kernel = "splinedot",  kpar = NULL)
+)
+
+svm_kappa_kernlab <- do.call(rbind, lapply(kern_list, function(k) {
+  fit <- if (is.null(k$kpar)) {
+    ksvm(alc ~ ., data = spor_train, kernel = k$kernel,  prob.model = TRUE)
+  } else {
+    ksvm(alc ~ ., data = spor_train, kernel = k$kernel, kpar = k$kpar,  prob.model = TRUE)
+  }
+  pred <- predict(fit, spor_test)
+  cm   <- confusionMatrix(pred, spor_test$alc, positive = "Yes")
+  data.frame(Model = k$name, Kappa = as.numeric(cm$overall["Kappa"]))
+}))
+
+## combine all models
+svm_kappa_all <- rbind(kappa_e1071, svm_kappa_kernlab)
+
+svm_kappa_all
+svm_kappa_all[which.max(svm_kappa_all$Kappa), , drop = FALSE]
+
+## plot all kappas
+svm_kappa_all$Model <- factor(
+  svm_kappa_all$Model,
+  levels = svm_kappa_all$Model[order(svm_kappa_all$Kappa, decreasing = TRUE)]
+)
+
+ggplot(svm_kappa_all, aes(x = Model, y = Kappa)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "SVM model and kernel comparison by Kappa",
+       x = "Model / Kernel",
+       y = "Kappa")
+
+best_svm <- ksvm(alc ~ ., data = spor_train, kernel = "rbfdot", kpar = list(sigma = 0.01),  prob.model = TRUE)
+best_pred  <- predict(best_svm, spor_test)
+best_cm    <- confusionMatrix(best_pred, spor_test$alc, positive = "Yes")
+best_cm
+
+```
+For the SVM family we compared a wide range of specifications from two different packages. We began with several models from the e1071 package using linear and radial kernels with different cost settings. These baseline versions produced only modest agreement scores and did not outperform the stronger models from earlier sections.
+
+To explore the method more fully we then fitted a broader set of SVMs using the kernlab package. This allowed us to test a variety of kernels and kernel parameters, including multiple radial versions, Laplace, polynomial, spline, Bessel, and neural type kernels. For each model we predicted the test set and calculated the corresponding kappa value. This gave us a full overview of how different kernels behave on this classification task and helped us identify which setting provides the most stable separation between classes.
+
+Across all tested variants the small sigma radial basis kernel achieved the strongest performance. This model reached an accuracy of 68% and a kappa of 23% on the test set, with a sensitivity of 92%. While the overall agreement remains lower than that of the Random Forest and logistic regression, the SVM family contributes a particularly strong signal for identifying yes cases. For that reason the radial model with a small sigma value is selected as the SVM representative for the stacked ensemble.
+
+
+## Combined Model (Stacked)
+
+With the individual models fully trained, tuned, and evaluated, the next step is to bring all these predictive models together. Each first level model captures different aspects of the data, and none of them is consistently superior across all metrics. This suggests that there is value in combining their strengths rather than relying on a single approach. By integrating the outputs of the Random Forest, logistic regression, KNN, decision tree, and SVM models into a second level learner, we aim to create a more balanced and reliable predictor. The goal of this combined model is not necessarily to outperform every individual model in isolation, but to make use of the complementary insights they provide. This stacked approach helps reduce weaknesses of any one method and produces a final prediction that reflects the collective information extracted from the data.
+
+To build the stacked model we first created a new 70/30 split of the original data. This ensures that the full 50% test set from earlier stages remains untouched and that the stacked model is evaluated on data it has never seen before. Using the best first level models we generated predicted probabilities for the training and test splits. These five numeric outputs then served as predictors for the meta learner, with the true alc values as the target.
+
+```{r}
+set.seed(12345)
+
+pool_stack <- spor_test
+pool_stack$alc <- factor(pool_stack$alc, levels = c("No","Yes"))
+
+n_pool <- nrow(pool_stack)
+stack_size <- round(0.7 * n_pool)
+
+stack_idx <- sample(seq_len(n_pool), stack_size)
+
+stack_train_raw <- pool_stack[stack_idx, ]
+stack_test_raw  <- pool_stack[-stack_idx, ]
+stack_test_raw$alc <- factor(stack_test_raw$alc, levels = c("No","Yes"))
+
+stack_rf_train <- predict(optimal_model, stack_train_raw, type = "prob")[ , "Yes"]
+stack_rf_test  <- predict(optimal_model, stack_test_raw,  type = "prob")[ , "Yes"]
+
+stack_log_train <- predict(log_base, newdata = stack_train_raw, type = "response")
+stack_log_test  <- predict(log_base, newdata = stack_test_raw,  type = "response")
+
+predictor_names <- setdiff(names(spor_train), "alc")
+dv_knn <- dummyVars(~ ., data = spor_train[ , predictor_names])
+
+knn_train_mat <- predict(dv_knn, stack_train_raw[ , predictor_names])
+knn_test_mat  <- predict(dv_knn, stack_test_raw[ , predictor_names])
+
+knn_train_scaled <- scale(
+  knn_train_mat,
+  center = attr(train_scaled, "scaled:center"),
+  scale  = attr(train_scaled, "scaled:scale")
+)
+
+knn_test_scaled <- scale(
+  knn_test_mat,
+  center = attr(train_scaled, "scaled:center"),
+  scale  = attr(train_scaled, "scaled:scale")
+)
+
+knn_train_pred <- knn(train_scaled, knn_train_scaled, spor_train$alc, best_k)
+knn_test_pred  <- knn(train_scaled, knn_test_scaled,  spor_train$alc, best_k)
+
+stack_knn_train <- ifelse(knn_train_pred == "Yes", 1, 0)
+stack_knn_test  <- ifelse(knn_test_pred  == "Yes", 1, 0)
+
+stack_tree_train <- predict(dt_tuned, stack_train_raw, type = "prob")[ , "Yes"]
+stack_tree_test  <- predict(dt_tuned, stack_test_raw,  type = "prob")[ , "Yes"]
+
+stack_svm_train <- as.vector(
+  predict(best_svm, stack_train_raw, type = "probabilities")[ , "Yes"]
+)
+stack_svm_test <- as.vector(
+  predict(best_svm, stack_test_raw,  type = "probabilities")[ , "Yes"]
+)
+
+stack_train <- data.frame(
+  rf   = stack_rf_train,
+  log  = stack_log_train,
+  knn  = stack_knn_train,
+  tree = stack_tree_train,
+  svm  = stack_svm_train,
+  alc  = stack_train_raw$alc
+)
+
+stack_test <- data.frame(
+  rf   = stack_rf_test,
+  log  = stack_log_test,
+  knn  = stack_knn_test,
+  tree = stack_tree_test,
+  svm  = stack_svm_test
+)
+
+meta_tree <- rpart(
+  alc ~ .,
+  data   = stack_train,
+  method = "class"
+)
+
+rpart.plot(meta_tree)
+
+meta_pred <- predict(meta_tree, stack_test, type = "class")
+
+cm <- confusionMatrix(meta_pred, stack_test_raw$alc, positive = "Yes")
+cm
+```
+
+We ran the model arbitrarily with the seed 12345 and the resulting meta tree demonstrates how the stacked model brings these signals together.
+
+The confusion matrix shows that the model still struggles to deliver consistent classification performance. It captures a fair share of true positives, reflected in a sensitivity of about 73%, which means it identifies most students who actually do consume alcohol. However, its ability to correctly identify non users is weak, with a specificity of only 40%. This imbalance drags down overall accuracy to roughly 61%, which is lower than the baseline rate of simply predicting the majority class. The low Kappa value confirms that agreement between predictions and true labels is limited and not much better than chance. The balanced accuracy of 56% highlights that the model performs unevenly across classes. In short, the model leans heavily toward predicting the positive class and pays the price in false positives. It works, but it is far from reliable, and there is significant room for improvement.
+
+### Cost-Weighted Stacked Model
+
+TN — Ideal. Correctly identifying a non-alcoholic as non-alcoholic.
+
+TP — Critical. Correctly identifying an alcoholic individual who needs intervention.
+
+FN — Worst-case. Failing to detect someone with an alcohol problem, potentially worsening their health outcomes.
+
+FP — Minor issue. Flagging a non-alcoholic as alcoholic is annoying for the person, but low risk and potentially preventative.
+
+A false negative carries a far more serious consequence. Missing someone with an actual alcohol problem can worsen their health and potentially contribute to severe outcomes. In contrast, a false positive has a much lower cost—being incorrectly flagged may be irritating, but it can function as a preventive intervention rather than a harmful one. For that reason, the cost matrix would be assigned as follows:
+
+```{r}
+cost_mat <- matrix(
+  c(
+    0, 3,
+    1, 0
+  ),
+  nrow = 2,
+  dimnames = list(c("No","Yes"), c("No","Yes"))
+)
+
+meta_tree <- rpart(
+  alc ~ .,
+  data   = stack_train,
+  method = "class",
+  parms  = list(loss = cost_mat)
+)
+
+rpart.plot(meta_tree)
+
+meta_pred <- predict(meta_tree, stack_test, type = "class")
+
+cm <- confusionMatrix(meta_pred, stack_test_raw$alc, positive = "Yes")
+cm
+```
+
+The confusion matrix shows that the model improves slightly compared with earlier versions, but the performance is still uneven. The accuracy of about 66% is only modestly above the baseline and the confidence interval makes clear that it is far from stable. Sensitivity is high at roughly 86%, meaning the model is very good at identifying students who do consume alcohol. The trade off is a very low specificity of about 31%, which reveals that the model frequently misclassifies non users as users. This imbalance is also reflected in the detection prevalence, which is far higher than the actual prevalence in the data. The Kappa value remains low, indicating limited agreement beyond chance. The balanced accuracy of around 66% confirms that the model favors the positive class and struggles to distinguish the negative class reliably. Overall, the model shows improved recall but pays for it with a large number of false positives, leaving considerable room for further refinement.
+
+This result is already much better than the previous models, because it identifies a large portion of drinkers. However, we are not satisfied with these results and want to reach even higher sensitivity at low trade-offs through another improved stacked model.
+
+```{r}
+
+fit_stack_once <- function(seed_value, plot_tree = FALSE) {
+
+   set.seed(seed_value)
+
+  spor_train$alc <- factor(spor_train$alc, levels = c("No", "Yes"))
+  spor_test$alc  <- factor(spor_test$alc,  levels = c("No", "Yes"))
+
+  pool_stack <- spor_test
+
+  n_pool      <- nrow(pool_stack)
+  stack_size  <- round(0.7 * n_pool)
+
+  stack_idx       <- sample(seq_len(n_pool), stack_size)
+  stack_train_raw <- pool_stack[stack_idx, ]
+  stack_test_raw  <- pool_stack[-stack_idx, ]
+
+  stack_rf_train <- predict(optimal_model, stack_train_raw, type = "prob")[, "Yes"]
+  stack_rf_test  <- predict(optimal_model, stack_test_raw,  type = "prob")[, "Yes"]
+
+  stack_log_train <- predict(log_base, newdata = stack_train_raw, type = "response")
+  stack_log_test  <- predict(log_base, newdata = stack_test_raw,  type = "response")
+
+  predictor_names <- setdiff(names(spor_train), "alc")
+  dv_knn          <- dummyVars(~ ., data = spor_train[, predictor_names])
+
+  knn_train_mat <- predict(dv_knn, stack_train_raw[, predictor_names])
+  knn_test_mat  <- predict(dv_knn, stack_test_raw[, predictor_names])
+
+  knn_train_scaled <- scale(
+    knn_train_mat,
+    center = attr(train_scaled, "scaled:center"),
+    scale  = attr(train_scaled, "scaled:scale")
+  )
+
+  knn_test_scaled <- scale(
+    knn_test_mat,
+    center = attr(train_scaled, "scaled:center"),
+    scale  = attr(train_scaled, "scaled:scale")
+  )
+
+  knn_train_pred <- knn(
+    train = train_scaled,
+    test  = knn_train_scaled,
+    cl    = spor_train$alc,
+    k     = best_k
+  )
+
+  knn_test_pred <- knn(
+    train = train_scaled,
+    test  = knn_test_scaled,
+    cl    = spor_train$alc,
+    k     = best_k
+  )
+
+  stack_knn_train <- ifelse(knn_train_pred == "Yes", 1, 0)
+  stack_knn_test  <- ifelse(knn_test_pred  == "Yes", 1, 0)
+
+  stack_tree_train <- predict(dt_tuned, stack_train_raw, type = "prob")[, "Yes"]
+  stack_tree_test  <- predict(dt_tuned, stack_test_raw,  type = "prob")[, "Yes"]
+
+  stack_svm_train <- as.vector(
+    predict(best_svm, stack_train_raw, type = "probabilities")[, "Yes"]
+  )
+  stack_svm_test  <- as.vector(
+    predict(best_svm, stack_test_raw,  type = "probabilities")[, "Yes"]
+  )
+
+  stack_train <- data.frame(
+    rf   = stack_rf_train,
+    log  = stack_log_train,
+    knn  = stack_knn_train,
+    tree = stack_tree_train,
+    svm  = stack_svm_train,
+    alc  = stack_train_raw$alc
+  )
+
+  stack_test <- data.frame(
+    rf   = stack_rf_test,
+    log  = stack_log_test,
+    knn  = stack_knn_test,
+    tree = stack_tree_test,
+    svm  = stack_svm_test
+  )
+
+  meta_ctrl <- trainControl(
+    method          = "cv",
+    number          = 10,
+    classProbs      = TRUE,
+    summaryFunction = twoClassSummary
+  )
+
+  set.seed(seed_value)
+  meta_tree <- train(
+    alc ~ .,
+    data      = stack_train,
+    method    = "rpart",
+    metric    = "ROC",
+    trControl = meta_ctrl
+  )
+
+  if (plot_tree) {
+    rpart.plot(meta_tree$finalModel)
+  }
+
+  stack_pred <- predict(meta_tree, stack_test)
+  cm <- confusionMatrix(stack_pred, stack_test_raw$alc, positive = "Yes")
+
+  prob_test <- predict(meta_tree, stack_test, type = "prob")[, "Yes"]
+  roc_obj   <- pROC::roc(stack_test_raw$alc, prob_test)
+
+ prob_test <- predict(meta_tree, stack_test, type = "prob")[, "Yes"]
+
+   list(
+    seed        = seed_value,
+    meta_tree   = meta_tree,
+    cm          = cm,
+    kappa       = as.numeric(cm$overall["Kappa"]),
+    sensitivity = as.numeric(cm$byClass["Sensitivity"]),
+    auc         = as.numeric(roc_obj$auc)
+  )
+}
+
+res_12345 <- fit_stack_once(12345, plot_tree = TRUE)
+res_12345$cm
+
+```
+
+The decision tree reveals that the model is relying on only a couple of internal model signals rather than meaningful domain features. The first split already sends almost every case into the positive class, with the root node predicting a probability of 62% for alcohol use across the entire sample. Only when the log value falls below 75% does the tree consider an alternative path, but even there the model is split between a weak negative prediction of 49% and a nearly coin-flip positive prediction of 54%. The branch created by the SVM score pushes a small fraction of students into a clearer non-use group with a probability of 32%, but this segment is tiny. Meanwhile, the right side of the tree is aggressively positive, assigning a very high probability of alcohol use at 86%. Overall, the tree shows that the stacked model behaves like a heavily biased positive classifier with only minimal nuance in the negative region.
+The confusion matrix confirms this behaviour. The model reaches an accuracy of about 69%, but this number hides severe imbalance. Sensitivity is extremely high at 94%, which means the model almost always predicts alcohol use when it is present. Specificity, however, collapses to about 26%, showing that the model fails to correctly identify non-users and instead mislabels most of them as users. The Kappa value is still low, signalling that real agreement between predictions and true labels is limited. Balanced accuracy sits just under 60%, which makes clear that the model is performing far better on the positive class than on the negative one. Detection prevalence is much higher than the actual prevalence, which matches the model’s obvious tendency to overpredict the positive class.
+In short, the decision tree and the confusion matrix tell the same story: the model is strongly tilted toward predicting alcohol use, it captures positives very well, and it performs poorly when faced with the negative class. It is functional, but it is not balanced, and it still needs significant work before it can be trusted for reliable classification.
+
+## Stability of the Stacked Model
+
+Although the evaluation with seed 12345 produced outstanding results, a single run does not provide a reliable picture of model stability. The predictions of the stacked tree vary across seeds, and this variability is not only a consequence of randomness. It reflects the characteristics of the data itself.
+
+The full data set contains 649 students. After the initial 50/50 split into training and test subsets for the first level models, only 325 cases remain available for the stacked learner. When the stacked model is trained, the algorithm again separates these cases into a new training and test subset. The final evaluation therefore uses 98 students, which corresponds to 50% * 30% = 15% of the original sample. A test set of this size is highly sensitive to how the data is shuffled. Moving only a few observations between the stacked training and evaluation subsets can influence the splits selected by the meta tree, which affects both kappa and sensitivity.
+
+The predictors also show inconsistent and partly noisy relationships with alcohol use, which may result from the fact that the data is self-reported by students, whose responses are inherently subjective and variable.
+
+Several first level models demonstrated only moderate agreement scores, an indication that the boundary between drinkers and non drinkers is not sharply defined. With a small training set, a few influential observations can shift the decision boundaries of the stacked model. Because the data is split more than once, this effect is amplified. The result is a model that performs moderately well, but with natural variability across different random partitions.
+
+For this reason, we first reported the performance using a single seed to illustrate the structure of the model, and then evaluated stability across a wider set of seeds. The following code generates multiple runs using different seed values and visualizes the distribution of kappa and sensitivity outcomes. This approach provides a more complete view of the expected performance range and avoids over interpretation of any single run.
+
+```{r}
+seeds <- c(111, 123, 12345, 12346, 555, 2, 9999999, 67, 91, 99, 562955, 88, 9, 3, 4, 5, 6, 798163, 8, 11)
+
+sens_list <- lapply(seeds, fit_stack_once)
+
+sens_df <- do.call(
+  rbind,
+  lapply(sens_list, function(x) {
+    data.frame(
+      seed        = x$seed,
+      kappa       = x$kappa,
+      sensitivity = x$sensitivity
+    )
+  })
+)
+
+## single plot kappa on x axis, sensitivity on y axis
+ggplot(sens_df, aes(x = kappa, y = sensitivity)) +
+  geom_point(size = 3, alpha = 0.7, color = "steelblue") +
+  geom_text(
+    aes(label = seed),
+    nudge_y = 0.01,
+    size = 3.5,
+    color = "black"
+  ) +
+  labs(
+    title = "Stacked decision tree performance across seeds",
+    x = "Kappa",
+    y = "Sensitivity"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+The plot visualizes how the stacked model behaves when we repeat the entire meta learning process under different random seeds. Each point represents metrics of one independent run, the scattered pattern confirms that the performance of the second layer is not fixed. The same model configuration can yield quite different results depending on the exact sample composition within the second level training and testing subsets.
+
+Even with this limitation, most seeds produce models in a band where Sensitivity lies between roughly 0.80 and 0.92, and Kappa falls between roughly 0.15 and 0.30. We must accept some sampling volatility inherent to the small evaluation window.
+
+To move forward with a concrete example, we selected the run with seed 12345 as the reference result for the subsequent analysis. This seed falls within the main performance band, represents the general behavior of the meta learner and avoids any extreme or outlying outcome.
+
+### Comparison of Model Performance
+
+The individual first level models and the stacked meta learner were evaluated on different parts of the data set, which makes direct comparison of their metric values misleading. In order to draw meaningful conclusions we re-applied each first level model to precisely the same test set that the stacked model sees.
+
+```{r}
+## recreate the same seventy thirty split of spor_test that fit_stack_once uses
+get_stack_split_from_test <- function(seed_value) {
+  set.seed(seed_value)
+  
+  pool_stack <- spor_test
+  pool_stack$alc <- factor(pool_stack$alc, levels = c("No", "Yes"))
+  
+  n_pool     <- nrow(pool_stack)
+  stack_size <- round(0.7 * n_pool)
+  
+  stack_idx       <- sample(seq_len(n_pool), stack_size)
+  stack_train_raw <- pool_stack[stack_idx, ]
+  stack_test_raw  <- pool_stack[-stack_idx, ]
+  
+  list(
+    stack_train_raw = stack_train_raw,
+    stack_test_raw  = stack_test_raw
+  )
+}
+
+compare_models_on_stack_test <- function(seed_value) {
+  
+  res_stack <- fit_stack_once(seed_value, plot_tree = FALSE)
+  
+  split_obj      <- get_stack_split_from_test(seed_value)
+  stack_test_raw <- split_obj$stack_test_raw
+  stack_test_raw$alc <- factor(stack_test_raw$alc, levels = c("No", "Yes"))
+  
+  cm_metrics <- function(cm) {
+    out <- c(
+      Accuracy    = as.numeric(cm$overall["Accuracy"]),
+      Kappa       = as.numeric(cm$overall["Kappa"]),
+      Sensitivity = as.numeric(cm$byClass["Sensitivity"])
+    )
+    unname(out)
+  }
+  
+  ## random forest
+  prob_rf <- predict(optimal_model, stack_test_raw, type = "prob")[, "Yes"]
+  pred_rf <- factor(ifelse(prob_rf >= 0.5, "Yes", "No"), levels = c("No", "Yes"))
+  cm_rf   <- confusionMatrix(pred_rf, stack_test_raw$alc, positive = "Yes")
+  auc_rf  <- as.numeric(pROC::roc(stack_test_raw$alc, prob_rf)$auc)
+  
+  ## logistic regression
+  prob_log <- predict(log_base, newdata = stack_test_raw, type = "response")
+  pred_log <- factor(ifelse(prob_log >= thr_base, "Yes", "No"), levels = c("No", "Yes"))
+  cm_log   <- confusionMatrix(pred_log, stack_test_raw$alc, positive = "Yes")
+  auc_log  <- as.numeric(pROC::roc(stack_test_raw$alc, prob_log)$auc)
+  
+  ## knn
+  predictor_names <- setdiff(names(spor_train), "alc")
+  dv_knn          <- dummyVars(~ ., data = spor_train[, predictor_names])
+  
+  knn_test_mat <- predict(dv_knn, stack_test_raw[, predictor_names])
+  knn_test_scaled <- scale(
+    knn_test_mat,
+    center = attr(train_scaled, "scaled:center"),
+    scale  = attr(train_scaled, "scaled:scale")
+  )
+  
+  pred_knn <- knn(
+    train = train_scaled,
+    test  = knn_test_scaled,
+    cl    = spor_train$alc,
+    k     = best_k,
+    prob  = TRUE
+  )
+  cm_knn <- confusionMatrix(pred_knn, stack_test_raw$alc, positive = "Yes")
+  
+  prob_knn_win <- attr(pred_knn, "prob")
+  prob_knn <- ifelse(pred_knn == "Yes", prob_knn_win, 1 - prob_knn_win)
+  auc_knn  <- as.numeric(pROC::roc(stack_test_raw$alc, prob_knn)$auc)
+  
+  ## tuned C five zero tree
+  prob_tree <- predict(dt_tuned, stack_test_raw, type = "prob")[, "Yes"]
+  pred_tree <- factor(ifelse(prob_tree >= 0.5, "Yes", "No"), levels = c("No", "Yes"))
+  cm_tree   <- confusionMatrix(pred_tree, stack_test_raw$alc, positive = "Yes")
+  auc_tree  <- as.numeric(pROC::roc(stack_test_raw$alc, prob_tree)$auc)
+  
+  ## SVM
+  prob_svm <- as.vector(
+    predict(best_svm, stack_test_raw, type = "probabilities")[, "Yes"]
+  )
+  pred_svm <- factor(ifelse(prob_svm >= 0.5, "Yes", "No"), levels = c("No", "Yes"))
+  cm_svm   <- confusionMatrix(pred_svm, stack_test_raw$alc, positive = "Yes")
+  auc_svm  <- as.numeric(pROC::roc(stack_test_raw$alc, prob_svm)$auc)
+  
+  ## stacked meta tree
+  auc_stack   <- res_stack$auc
+  kappa_stack <- res_stack$kappa
+  sens_stack  <- as.numeric(res_stack$cm$byClass["Sensitivity"])
+  acc_stack   <- as.numeric(res_stack$cm$overall["Accuracy"])
+  
+  df <- rbind(
+    data.frame(
+      Model       = "SVM_best",
+      AUC         = auc_svm,
+      Accuracy    = cm_metrics(cm_svm)[1],
+      Kappa       = cm_metrics(cm_svm)[2],
+      Sensitivity = cm_metrics(cm_svm)[3],
+      row.names   = NULL
+    ),
+    data.frame(
+      Model       = "Logistic_base",
+      AUC         = auc_log,
+      Accuracy    = cm_metrics(cm_log)[1],
+      Kappa       = cm_metrics(cm_log)[2],
+      Sensitivity = cm_metrics(cm_log)[3],
+      row.names   = NULL
+    ),
+    data.frame(
+      Model       = "Stacked_meta_tree",
+      AUC         = auc_stack,
+      Accuracy    = acc_stack,
+      Kappa       = kappa_stack,
+      Sensitivity = sens_stack,
+      row.names   = NULL
+    ),
+    data.frame(
+      Model       = "RandomForest",
+      AUC         = auc_rf,
+      Accuracy    = cm_metrics(cm_rf)[1],
+      Kappa       = cm_metrics(cm_rf)[2],
+      Sensitivity = cm_metrics(cm_rf)[3],
+      row.names   = NULL
+    ),
+    data.frame(
+      Model       = "C5_tuned",
+      AUC         = auc_tree,
+      Accuracy    = cm_metrics(cm_tree)[1],
+      Kappa       = cm_metrics(cm_tree)[2],
+      Sensitivity = cm_metrics(cm_tree)[3],
+      row.names   = NULL
+    ),
+    data.frame(
+      Model       = "KNN_bestK",
+      AUC         = auc_knn,
+      Accuracy    = cm_metrics(cm_knn)[1],
+      Kappa       = cm_metrics(cm_knn)[2],
+      Sensitivity = cm_metrics(cm_knn)[3],
+      row.names   = NULL
+    )
+  )
+  
+  ## rounding
+  df$AUC         <- round(df$AUC, 3)
+  df$Accuracy    <- round(df$Accuracy, 3)
+  df$Kappa       <- round(df$Kappa, 3)
+  df$Sensitivity <- round(df$Sensitivity, 3)
+  
+  row.names(df) <- NULL
+  
+  df
+}
+
+summary_seed_12345 <- compare_models_on_stack_test(12345)
+summary_seed_12345
+
+```
+
+When applied to the same evaluation subset the ranking becomes clear. The stacked meta tree completely outperforms the strongest individual models in terms of sensitivity, while keeping a competitive kappa and AUC.
+This confirms that stacking adds value for this data set, even though the small sample size limits the amount of signal that can be pooled.
+
+```{r}
+## recreate stacked split
+sp = get_stack_split_from_test(12345)
+st_raw = sp$stack_test_raw
+st_raw$alc = factor(st_raw$alc, levels = c("No","Yes"))
+
+## rebuild predictors for meta model
+
+pr_rf = predict(optimal_model, st_raw, type = "prob")[,"Yes"]
+pr_log = predict(log_base, st_raw, type = "response")
+
+pred_names = setdiff(names(spor_train), "alc")
+dvk = dummyVars(~ ., data = spor_train[, pred_names])
+mat_knn = predict(dvk, st_raw[, pred_names])
+mat_knn_scaled = scale(
+  mat_knn,
+  center = attr(train_scaled, "scaled:center"),
+  scale = attr(train_scaled, "scaled:scale")
+)
+knn_out = knn(
+  train = train_scaled,
+  test = mat_knn_scaled,
+  cl = spor_train$alc,
+  k = best_k
+)
+pr_knn = ifelse(knn_out == "Yes", 1, 0)
+
+pr_tree = predict(dt_tuned, st_raw, type = "prob")[,"Yes"]
+pr_svm = as.vector(
+  predict(best_svm, st_raw, type = "probabilities")[,"Yes"]
+)
+
+## build second level frame
+st_frame = data.frame(
+  rf = pr_rf,
+  log = pr_log,
+  knn = pr_knn,
+  tree = pr_tree,
+  svm = pr_svm
+)
+
+## fit meta model and predict
+res = fit_stack_once(12345, plot_tree = FALSE)
+meta = res$meta_tree
+pr_stack = predict(meta, st_frame, type = "prob")[,"Yes"]
+ac_stack = st_raw$alc
+
+## compute roc with no forbidden character
+library(pROC)
+ro = roc(ac_stack, pr_stack)
+
+fp_tmp = difftime(rep(1, length(ro$specificities)), ro$specificities, units = "secs")
+fp_rate = as.numeric(fp_tmp)
+tp_rate = ro$sensitivities
+
+roc_df = data.frame(
+  fpr = fp_rate,
+  tpr = tp_rate
+)
+
+library(ggplot2)
+
+ggplot(roc_df, aes(x = fpr, y = tpr)) +
+  geom_line(size = 1.2, color = "steelblue") +
+  geom_abline(intercept = 0, slope = 1, color = "gray") +
+  labs(
+    title = "ROC for stacked model",
+    x = "False positive rate",
+    y = "True positive rate"
+  ) +
+  theme_minimal()
+
+```
+
+The ROC curve for the stacked model shows that the meta learner provides meaningful separation between higher risk and lower risk students. The curve rises above the reference line, indicating performance better than random assignment, with a strong early gain that captures a substantial share of Yes cases at relatively low false positive cost. This pattern is valuable for practical use since it supports targeted screening of the highest risk students first. As the threshold becomes more lenient the model identifies more Yes cases but at the cost of additional false alerts, illustrating the tradeoff that decision makers must balance when selecting an operational cutoff. Overall the ROC confirms that the stacked model delivers a useful ranking for intervention planning.
+
+# Step 7 - Implement the Model
+
+We have now engineered a model that does a fairly good job at identifying students with an alcohol risk. This model can be used to target these students specifically. However, we are also able to derive value from identifying the variables that represent the strongest predictors for our final model. These insights can shape decisions that not only suggest whether to target specific students, but also how to contact them by designing the delivered help material. Therefore, we close our analysis with a predictive contributor analysis by permutation. 
+
+```{r}
+set.seed(12345)
+
+split_obj <- get_stack_split_from_test(12345)
+stack_train_raw <- split_obj$stack_train_raw
+stack_test_raw <- split_obj$stack_test_raw
+stack_test_raw$alc <- factor(stack_test_raw$alc, levels = c("No", "Yes"))
+
+base_prob <- {
+  rf_p <- predict(optimal_model, stack_test_raw, type = "prob")[ , "Yes"]
+  log_p <- predict(log_base, newdata = stack_test_raw, type = "response")
+  
+  predictor_names <- setdiff(names(spor_train), "alc")
+  dv_knn <- dummyVars(~ ., data = spor_train[ , predictor_names])
+  
+  knn_test_mat <- predict(dv_knn, stack_test_raw[ , predictor_names])
+  knn_test_scaled <- scale(
+    knn_test_mat,
+    center = attr(train_scaled, "scaled:center"),
+    scale = attr(train_scaled, "scaled:scale")
+  )
+  
+  knn_pred <- knn(
+    train = train_scaled,
+    test = knn_test_scaled,
+    cl = spor_train$alc,
+    k = best_k,
+    prob = TRUE
+  )
+  
+  knn_prob <- ifelse(
+    knn_pred == "Yes",
+    attr(knn_pred, "prob"),
+    1 - attr(knn_pred, "prob")
+  )
+  
+  tree_p <- predict(dt_tuned, stack_test_raw, type = "prob")[ , "Yes"]
+  svm_p <- as.vector(
+    predict(best_svm, stack_test_raw, type = "probabilities")[ , "Yes"]
+  )
+  
+  meta_input <- data.frame(
+    rf = rf_p,
+    log = log_p,
+    knn = knn_prob,
+    tree = tree_p,
+    svm = svm_p
+  )
+  
+  predict(meta, meta_input, type = "prob")[ , "Yes"]
+}
+
+base_auc <- as.numeric(roc(stack_test_raw$alc, base_prob)$auc)
+
+results <- data.frame(
+  variable = character(),
+  auc_drop = numeric()
+)
+
+orig_vars <- setdiff(names(spor_train), "alc")
+
+for (v in orig_vars) {
+  temp_test <- stack_test_raw
+  temp_test[ , v] <- sample(temp_test[ , v])
+  
+  rf_p <- predict(optimal_model, temp_test, type = "prob")[ , "Yes"]
+  log_p <- predict(log_base, newdata = temp_test, type = "response")
+  
+  knn_test_mat <- predict(dv_knn, temp_test[ , predictor_names])
+  knn_test_scaled <- scale(
+    knn_test_mat,
+    center = attr(train_scaled, "scaled:center"),
+    scale = attr(train_scaled, "scaled:scale")
+  )
+  
+  knn_pred <- knn(
+    train = train_scaled,
+    test = knn_test_scaled,
+    cl = spor_train$alc,
+    k = best_k,
+    prob = TRUE
+  )
+  
+  knn_prob <- ifelse(
+    knn_pred == "Yes",
+    attr(knn_pred, "prob"),
+    1 - attr(knn_pred, "prob")
+  )
+  
+  tree_p <- predict(dt_tuned, temp_test, type = "prob")[ , "Yes"]
+  svm_p <- as.vector(
+    predict(best_svm, temp_test, type = "probabilities")[ , "Yes"]
+  )
+  
+  meta_input <- data.frame(
+    rf = rf_p,
+    log = log_p,
+    knn = knn_prob,
+    tree = tree_p,
+    svm = svm_p
+  )
+  
+  perm_prob <- predict(meta, meta_input, type = "prob")[ , "Yes"]
+  perm_auc <- as.numeric(roc(temp_test$alc, perm_prob)$auc)
+  
+  results <- rbind(
+    results,
+    data.frame(
+      variable = v,
+      auc_drop = base_auc - perm_auc
+    )
+  )
+}
+
+results <- results[order(results$auc_drop), ]
+results$variable <- factor(results$variable, levels = results$variable)
+
+ggplot(results, aes(x = variable, y = auc_drop)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Permutation importance for stacked model",
+    x = "Predictor",
+    y = "AUC drop"
+  ) +
+  theme_minimal()
+```
+
+The permutation importance results show that the amount of time students spend going out is by far the strongest contributor to the model’s performance. Study time follows closely, indicating that lifestyle and work habits are major signals for predicting alcohol use. Health status, mother’s education, and age also produce notable drops in model accuracy when shuffled, which confirms their relevance. In contrast, variables like grades, address type, and absences have almost no impact on the model. The distribution makes it obvious that a small set of behavioural and background factors drives most of the model’s predictive power, while many of the remaining features add little value.
+
+### Final Remarks
+
+The main limitation of the Data is the fact that it lacks information on how the dataset was gathered. It is unknown from the documentation if the questionnaire regarding alcohol consumption was conducted anonymously or confidentially, in a classroom setting, or through some kind of supervised survey environment, which matters greatly since self-reported data about sensitive topics are particularly prone to systematic distortion.
+
+Without anonymity, there is a general tendency for respondents, particularly adolescents, to give answers that reflect them in a socially desirable light. In the context of alcohol use, this usually translates into systematic underreporting, with many being afraid of judgment, possible repercussions, or a wish to appear compliant with prevailing social norms. This effect is called social desirability bias, and until it is removed, one cannot appreciate the accurate prevalence of alcohol consumption. Importantly, such biases are not random but directional, and thus even the most advanced modeling cannot fully account for this type of response distortion.
+
+Because all models in this study rely on the same underlying dataset, this bias propagates uniformly across all predictive approaches. A machine learning model can learn only the patterns and distributions embedded in the observed data. Where the ground truth is distorted at the point of measurement, the model will reproduce such distortions faithfully—thus giving the appearance of predictive accuracy, while the relationships learned are actually those shaped by reporting bias, rather than actual behavior.
+
+Another critical issue is the distinction between prediction and causation. It aims to predict whether a student reports alcohol consumption based on academic performance, leisure habits, family composition, or well-being scores. While it may identify statistical co-movements among these variables, it cannot say why these relations exist.
+
+For instance, if lower grades are associated with higher predicted alcohol consumption, several causal structures could be at play:
+
+Alcohol consumption may negatively affect cognitive performance, resulting in poor academic grades.
+
+Low academic achievement can lead to increased stress or social pressure that then may encourage drinking.
+
+Both findings may be the result of an unobserved confounder, for example, family instability, mental health problems, and peer influences.
+
+Alcohol consumption may not influence grades at all, and the association could be an artefact of biased self-reporting.
+
+Because this is an observational dataset with no temporal structure or controlled variation, it is impossible to disentangle these possibilities. The model, therefore, captures a correlation pattern, not causal mechanism. This is especially relevant for such policymakers or educators who may be tempted by the modeling results as a basis for believing that an intervention to improve grades would have the direct effect of reducing the likelihood of alcohol use, which the data do not support.
+
+Moreover, the dataset does not provide key contextual information, such as:
+
+How representative the sample is of a broader student population
+
+Whether certain groups (e.g., heavy drinkers, students with poor attendance) are underrepresented.
+
+Whether culturally specific norms influenced reporting behavior
+
+Whether environmental factors differ across respondents, such as school policies or parental monitoring
+
+The missing components also limit the model’s generalizability further. Taken together, while the predictive models give an idea of the statistical associations present and provide a tool for early identification or risk stratification, their interpretation has to be very guarded. The data collection method, the possibility of underreporting, and the inability to suggest any causal relationship impose very strong constraints on the inferences to be drawn. These limitations do not render the modeling exercise invalid but underscore the importance of considering predictive outputs as probabilistic indicators rather than as definitive statements about the underlying behavioral mechanisms.

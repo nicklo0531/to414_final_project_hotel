@@ -1,0 +1,53 @@
+library(class)
+library(caret)
+
+# Outcome factors
+train_y <- factor(df_train$is_canceled, levels = c(0,1))
+test_y  <- factor(df_test$is_canceled,  levels = c(0,1))
+
+train_x <- df_train[, names(df_train) != "is_canceled"]
+test_x  <- df_test[,  names(df_test)  != "is_canceled"]
+
+# Sequence of k values to try
+ks <- seq(3, 31, 2)
+results <- data.frame(
+  k = ks,
+  Accuracy = NA,
+  Specificity = NA,
+  Sensitivity = NA
+)
+
+# Loop over k values to tune
+for (i in seq_along(ks)) {
+  pred_i <- knn(train = train_x, test = test_x, cl = train_y, k = ks[i])
+  pred_i <- factor(pred_i, levels = c("0","1"))
+  
+  cm_i <- confusionMatrix(pred_i, test_y, positive = "1")
+  results$Accuracy[i] <- cm_i$overall["Accuracy"]
+  results$Specificity[i] <- cm_i$byClass["Specificity"]
+  results$Sensitivity[i] <- cm_i$byClass["Sensitivity"]
+}
+
+# Select k with best specificity (or whichever metric you want)
+best_k <- results$k[which.max(results$Specificity)]
+
+# Final KNN predictions (test)
+pred_knn <- knn(train_x, test_x, cl = train_y, k = best_k, prob = TRUE)
+pred_knn <- factor(pred_knn, levels = c("0","1"))
+
+# Convert KNN "prob" attribute to probability of class "1"
+knn_prob_attr <- attr(pred_knn, "prob")
+knn_test_prob <- ifelse(pred_knn == "1", knn_prob_attr, 1 - knn_prob_attr)
+
+# Train-side probabilities (KNN on train)
+pred_knn_train <- knn(train_x, train_x, cl = train_y, k = best_k, prob = TRUE)
+knn_prob_attr_train <- attr(pred_knn_train, "prob")
+knn_train_prob <- ifelse(pred_knn_train == "1", knn_prob_attr_train, 1 - knn_prob_attr_train)
+
+# Save probabilities for stacking
+saveRDS(knn_train_prob, "outputs/knn_train_prob.rds")
+saveRDS(knn_test_prob,  "outputs/knn_test_prob.rds")
+
+# confusion matrices for reporting
+cm_knn <- confusionMatrix(pred_knn, test_y, positive = "1")
+cm_knn
