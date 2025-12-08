@@ -1,0 +1,115 @@
+library(caret)
+library(dplyr)
+library(ggplot2)
+
+# Load precomputed probabilities from first-level models
+
+log_test_prob <- readRDS("RDS/log_test_prob.rds")
+knn_test_prob <- readRDS("RDS/knn_test_prob.rds")
+c50_test_prob <- readRDS("RDS/c50_test_prob.rds")
+rf_test_prob  <- readRDS("RDS/rf_test_prob.rds")
+svm_test_prob <- readRDS("RDS/svm_linear_test_prob.rds")
+ann_test_prob <- readRDS("RDS/ann_test_prob.rds")  # optional
+
+# Outcome
+
+y_test <- df_test$is_canceled
+
+# Cost matrix parameters
+
+C_FP <- 1200  # false positive cost
+C_FN <- 500   # false negative cost
+
+# Function to evaluate thresholds and compute cost
+
+evaluate_at_threshold <- function(y_true, p_hat, threshold, C_FP, C_FN) {
+  preds <- ifelse(p_hat >= threshold, 1, 0)
+  cm <- confusionMatrix(factor(preds, levels=c(0,1)),
+                        factor(y_true, levels=c(0,1)),
+                        positive="1")
+  FP <- sum(preds == 1 & y_true == 0)
+  FN <- sum(preds == 0 & y_true == 1)
+  cost     <- C_FP * FP + C_FN * FN
+  avg_cost <- cost / length(y_true)
+  data.frame(
+    Threshold   = threshold,
+    Accuracy    = as.numeric(cm$overall["Accuracy"]),
+    Kappa       = as.numeric(cm$overall["Kappa"]),
+    Sensitivity = as.numeric(cm$byClass["Sensitivity"]),
+    Precision   = as.numeric(cm$byClass["Pos Pred Value"]),
+    Cost        = cost,
+    AvgCost     = avg_cost
+  )
+}
+
+# Function to sweep thresholds for a given model
+
+sweep_model <- function(y_true, p_hat, model_name, C_FP, C_FN,
+                        thresholds = seq(0.01, 0.99, by = 0.01)) {
+  rows <- lapply(thresholds, function(t) {
+    evaluate_at_threshold(y_true, p_hat, t, C_FP, C_FN)
+  })
+  out <- do.call(rbind, rows)
+  out$Model <- model_name
+  out
+}
+
+# Sweep thresholds for all first-level models on the full 40% test split
+
+results_all <- rbind(
+  sweep_model(y_test, log_test_prob, "Logistic",     C_FP, C_FN),
+  sweep_model(y_test, knn_test_prob, "KNN",          C_FP, C_FN),
+  sweep_model(y_test, c50_test_prob, "C5.0",         C_FP, C_FN),
+  sweep_model(y_test, rf_test_prob,  "Random Forest",C_FP, C_FN),
+  sweep_model(y_test, svm_test_prob, "SVM (linear)", C_FP, C_FN),
+  sweep_model(y_test, ann_test_prob, "ANN",          C_FP, C_FN)  # optional
+)
+
+# Find the best threshold per model (minimum AvgCost)
+
+best_by_cost <- results_all %>%
+  group_by(Model) %>%
+  slice_min(AvgCost, with_ties = FALSE) %>%
+  ungroup()
+
+print(best_by_cost)
+
+# Plot best AvgCost per model
+
+ggplot(best_by_cost, aes(x=reorder(Model, AvgCost), y=AvgCost)) +
+  geom_col() +
+  geom_text(aes(label = paste0("t=", round(Threshold, 2))),
+            hjust=-0.1, size=3) +
+  coord_flip() +
+  labs(title="Best Average Cost per Booking by Model",
+       x="Model", y="Average Cost ($)") +
+  theme_minimal()
+
+# Use the best model and threshold to compute final confusion matrix
+
+best_model_name <- best_by_cost$Model[which.min(best_by_cost$AvgCost)]
+best_threshold  <- best_by_cost$Threshold[which.min(best_by_cost$AvgCost)]
+
+# Select corresponding probabilities
+
+pred_probs <- switch(
+  best_model_name,
+  "Logistic"      = log_test_prob,
+  "KNN"           = knn_test_prob,
+  "C5.0"          = c50_test_prob,
+  "Random Forest" = rf_test_prob,
+  "SVM (linear)"  = svm_test_prob,
+  "ANN"           = ann_test_prob,
+  stop("Unknown model")
+)
+
+# Convert probabilities to class predictions using best threshold
+
+pred_classes <- ifelse(pred_probs >= best_threshold, 1, 0)
+
+# Compute and print final confusion matrix
+
+final_cm <- confusionMatrix(factor(pred_classes, levels=c(0,1)),
+                            factor(y_test, levels=c(0,1)),
+                            positive="1")
+print(final_cm)

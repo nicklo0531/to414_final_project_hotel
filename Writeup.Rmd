@@ -105,7 +105,7 @@ To model cancellation behaviour, we trained a Random Forest classifier. We tuned
 
 ### Second-layer Decision Tree
 
-```{r stacked_dt}
+```{r meta_dt}
 source("models/metaDT.R")
 ```
 
