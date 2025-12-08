@@ -5,6 +5,7 @@ library(C50)
 library(randomForest)
 library(e1071)
 library(class)
+library(pROC)
 
 # Already have precomputed probabilities and y_test and y_train from first-level models from base_compariso
 
@@ -80,8 +81,8 @@ rpart.plot(stack_dt)
 
 # 6. COST-BASED THRESHOLD SWEEP
 
-cost_FP <- 1200
-cost_FN <- 500
+c_FP <- 1200
+c_FN <- 500
 
 thresholds <- seq(0.01, 0.99, by = 0.01)
 
@@ -89,7 +90,7 @@ costs <- sapply(thresholds, function(t) {
   preds <- ifelse(stack_pred_prob >= t, 1, 0)
   FP <- sum(preds == 1 & y_final == 0)
   FN <- sum(preds == 0 & y_final == 1)
-  cost_FP * FP + cost_FN * FN
+  c_FP * FP + c_FN * FN
 })
 
 best_threshold <- thresholds[which.min(costs)]

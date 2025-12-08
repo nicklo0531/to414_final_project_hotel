@@ -15,6 +15,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
 ```
 
 <style>
@@ -101,17 +102,24 @@ source("models/RandomForest.R")
 
 To model cancellation behaviour, we trained a Random Forest classifier. We tuned the number of trees (ntree) by testing values from 100 to 2000 in steps of 100, using out-of-sample precision as the primary metric. Performance plateaued quickly, and 300 trees delivered the best balance of accuracy, sensitivity, and precision, so we selected ntree = 300 for the final model.
 
+## Introducing Cost Matrix and Evaluating first level Models
+
+```{r comp, cache = FALSE}
+source("models/base_comparison.R")
+```
+As the ANN-Model is evidentely much worse than the other first-level models and as it was only trained on 30% of the test set, we have decided against incorporating it in the stacked models.
+
 ## Stacked Models
 
 ### Second-layer Decision Tree
 
-```{r meta_dt}
+```{r meta_dt, cache = FALSE}
 source("models/metaDT.R")
 ```
 
 ### Second-layer Logistic Regression
 
-```{r stacked_lr}
+```{r stacked_lr, cache = FALSE}
 source("models/StackedLR.R")
 ```
 
