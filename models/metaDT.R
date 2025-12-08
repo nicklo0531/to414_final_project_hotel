@@ -56,7 +56,7 @@ stack_test <- data.frame(
 )
 
 
-# 5. TRAIN SECOND-LEVEL RPART
+# 5. Train second-level Decision Tree
 
 set.seed(12345)
 stack_dt <- rpart(

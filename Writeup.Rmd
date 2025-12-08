@@ -128,15 +128,13 @@ Given that giving someone a room at a different hotel plus compensation is about
 
 Looking at the table itself, each row is the “best” version of that model once we plug in our cost numbers. The Threshold column shows how high the predicted cancel-probability has to be before we treat a booking as a cancellation risk. Models with very high thresholds like the ANN at 0.99 are extremely picky and only flag the riskiest guests, which gives them huge Precision but lower Sensitivity because they miss a lot of actual cancellations. On the other side, the logistic model at 0.01 basically flags almost everyone, so its sensitivity is higher but its precision drops. Accuracy and Kappa summarize overall performance, but the main number we care about is AvgCost, which turns all those trade-offs into an estimated dollar loss per reservation. Random Forest ends up with the lowest AvgCost, while the stacked model and SVM are close behind, and the ANN is the most expensive because it leaves too many empty rooms.
 
-with cost matrix (?)
-
-without cost matrix (??)
-
-
 # Step 7: Implement Model
 
 ## Next Steps
 
+Financials with cm_rf
+Projections
+
 ## Future Explorations
 
-
+Limitations

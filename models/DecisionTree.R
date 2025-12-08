@@ -67,6 +67,7 @@ comparison <- data.frame(
   AUC      = c(auc_rpart, auc_c50)
 )
 
-print(comparison)
-print(cm_c50)
 rpart.plot(tuned_model)
+print(comparison)
+cat("\n Best Decision Tree (highest AUC): C5.0 \n")
+print(cm_c50)

@@ -40,13 +40,11 @@ for (i in seq_along(ntree_list)) {
   results$Precision[i]   <- cm$byClass["Pos Pred Value"]
   
   # Compute AUC
-  
   roc_obj <- roc(df_test$is_canceled, temp_prob)
   results$AUC[i] <- auc(roc_obj)
 }
 
 # Plot metrics including AUC
-
 results_long <- melt(results, id.vars = "ntree",
                      variable.name = "Metric",
                      value.name = "Value")
@@ -76,7 +74,6 @@ rf_model <- randomForest(
 )
 
 # Save model and probabilities for stacking
-
 saveRDS(rf_model, "RDS/rf_model.rds")
 
 rf_train_prob <- predict(rf_model, df_train, type = "prob")[, "1"]

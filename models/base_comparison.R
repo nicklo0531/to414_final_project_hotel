@@ -2,13 +2,12 @@ library(caret)
 library(dplyr)
 library(ggplot2)
 
-# Load precomputed probabilities from first-level models
+# Load precomputed probabilities from first-level models (no ANN due to reasoning in write-up)
 log_test_prob <- readRDS("RDS/log_test_prob.rds")
 knn_test_prob <- readRDS("RDS/knn_test_prob.rds")
 c50_test_prob <- readRDS("RDS/c50_test_prob.rds")
 rf_test_prob  <- readRDS("RDS/rf_test_prob.rds")
 svm_test_prob <- readRDS("RDS/svm_linear_test_prob.rds")
-ann_test_prob <- readRDS("RDS/ann_test_prob.rds")  # optional
 
 # Outcome
 y_test <- df_test$is_canceled
@@ -64,9 +63,7 @@ results_all <- rbind(
   sweep_model(y_test, ann_test_prob, "ANN",          C_FP, C_FN)
 )
 
-################################################################################
-# ADD BASELINE MODEL (NEVER PREDICT CANCELLATION)
-################################################################################
+# Adding Baseline (no model in place)
 
 baseline_preds <- rep(0, length(y_test))
 
@@ -91,7 +88,6 @@ baseline_row <- data.frame(
   AvgCost     = baseline_avg_cost,
   Model       = "Baseline (No Model)"
 )
-
 
 # Combine with main results
 
