@@ -18,7 +18,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
-knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(cache = FALSE)
 ```
 
 <style>
@@ -189,9 +189,9 @@ We optimized the six base models over their respective parameters along statisti
 
 #### Introducing Cost Matrix 
 
-There are multiple ways to model the impact of our model to the business case. One could try to plainly maximize revenue, maximize the net benefit of a model compared to a baseline of no model in place, or compare the benefit of the models to an ideal scenario where no empty rooms and no overbooking happens.
+There are multiple ways to model the impact of our model to the business case. One could try to plainly maximize revenue, maximize the net benefit of a model compared to a baseline of no model in place, or compare the benefit of the models to an ideal scenario where no empty rooms and no overbooking happens, because every cancellation or not is anticipated.
 
-We have chosen to move forward with the latter approach. This implies computing the average costs per booking (per row) induced by the model as a deviance from the perfect scenario.
+We have chosen to move forward with the latter approach. This implies computing the average costs (or average loss) per booking (per row) induced by the model as a deviance from the perfect scenario.
 
 We have estimated, assumed and defined the following components for our cost matrix.
 
@@ -211,83 +211,102 @@ The Hotel incurs a loss of $\$500$ which is an average estimate of the revenue t
 The customer does not cancel their booking, but we expected him to cancel.
 Because we anticipated a cancellation, we have overbooked the customers room. Hence, the room is occupied by another customer, which is why we have to offer alternative accommodation for the customer we expected to cancel. Our cost assumption amounts to $\$1200$ and includes providing a replacement room suite at a sister hotel ($\$800$), discounts and hotel restaurant credit worth $\$200$ and accounts for possible trickle-down effects on revenue from bad-reviews ($\$200$).
 
-We 
+We began by sourcing the stored probabilities for the test set from the RDS files of all the hyperparameter-optimized first-level models. Then, we defined the _evaluate_at_threshold_ function that computed confusion matrices for every cutoff determining the classification of a booking as a cancellation or not. This function also computed the average cost per booking. 
+We then ran a threshold sweep to find the cutoff that minimized _AvgCost_ for every model, and additionally included a cost-computation of no model in place to serve as a baseline reference for comparison.
+
+The following table displays the results of average costs and metrics from the optimal confusion matrices. For visualization, we also included a plot of the results.
 
 ```{r comp}
 source("models/base_comparison.R")
 ```
 
-Looking at the table itself, each row is the “best” version of that model once we plug in our cost numbers. The Threshold column shows how high the predicted cancel-probability has to be before we treat a booking as a cancellation risk. Models with very high thresholds like the ANN at 0.99 are extremely picky and only flag the riskiest guests, which gives them huge Precision but lower Sensitivity because they miss a lot of actual cancellations. On the other side, the logistic model at 0.01 basically flags almost everyone, so its sensitivity is higher but its precision drops. Accuracy and Kappa summarize overall performance, but the main number we care about is AvgCost, which turns all those trade-offs into an estimated dollar loss per reservation. Random Forest ends up with the lowest AvgCost, while the stacked model and SVM are close behind, and the ANN is the most expensive because it leaves too many empty rooms.
+It becomes clear that the Random Forest emerges as the model with the lowest average costs of $111 using a threshold of 0.66. 
 
-Given that giving someone a room at a different hotel plus compensation is about twice as expensive as an empty $500 room, the Random Forest with threshold 0.55 is the cheapest policy: it creates the lowest average loss per reservation. The other models either send too many guests away to other hotels or leave too many rooms empty, so their average cost per booking is higher.
+Models with extremely high thresholds, such as the ANN at 0.98, flag only the riskiest bookings, producing high precision but missing many cancellations. Models with moderate thresholds like KNN or SVM flag more bookings, increasing sensitivity but also generating higher false positives and costs.
 
-As the ANN-Model is evidentely much worse than the other first-level models and as it was only trained on 30% of the test set, we have decided against incorporating it in the stacked models.
+Given that compensation for overbooking is more than twice as costly as leaving a room empty, the final confusion matrix for the best model, Random Forest, confirms its effectiveness in balancing sensitivity and specificity while minimizing financial loss.
+This evaluation demonstrates that a cost-aware threshold selection is essential, allowing the model to minimize average losses per reservation rather than merely focusing on traditional metrics like accuracy or AUC.
 
+As the ANN-Model is evidently the worst first-level models and as it was only trained on 30% of the test set, we have decided against incorporating it into the stacked models, which we will pursue in the following.
 
 ## Stacked Models
 
-We split 50-50 on the original 40% of test data. (this turns out to be 20% train and 20% test of the original data-set, so 970 rows each).
-We are attempting to leverage the strengths of each base model and come up with a second-level model. 
-First, we chose a decision tree as our second-level model because of its ability to not merely average predictions, but aggregate the strengths of each base model. We are also applying the defined cost matrix based on our context of the business problem.
+Now, we aim to combine the strengths of the first-level models into a single second-level model that could learn patterns across the predicted probabilities of first-level models.
+For this approach, we initially selected a decision tree as the meta-learner. This choice allowed us to not only combine predictions but also let the model learn which base learners perform best under different conditions rather than simply averaging them. We again applied our previously defined cost matrix so that the second-level model could directly optimize for the business objective of minimizing financial loss from cancellations.
 
-### Second-layer Decision Tree
+For training and evaluating of this meta-model, we performed a secondary data-split of 50-50 on the original test portion of the data. This creates two equal halves so that 20% of the full dataset can be used for training the meta-learner and the remaining 20% for final evaluation. This resulted in 970 observations in each set. 
+
+### Initial second-layer Decision Tree
 
 ```{r meta_dt}
 source("models/metaDT.R")
 ```
 
-The stacked decision tree model turns out to only use random forest as its predictor. This makes sense as random forest was outperforming the other base models. However, this also means that the random forest base model is sufficient for predicting.
+This initial stacked decision tree ultimately learned a very simple rule: it relied exclusively on the random forest probabilities as its predictor. This result is intuitive because the random forest clearly outperformed the other first-level models in our earlier evaluations. It also suggests that, in this configuration, stacking does not add value beyond what the random forest already provides on its own.
 
-This is why we explore other options for stacking, namely a meta Logistic Regression Model and a meta Random Forest Model
-### Second-layer Logistic Regression
+### Additional second-layer models
+
+Because of this, we extended our analysis by first lowering the meta-decision-tree's complexity parameter to induce more splits. Moreover, we tested two additional approaches for meta-learners: a meta-logistic-regression and a meta-random-forest, to see whether any of these could extract complementary information from the full set of base-model predictions.
+
+These three layered approaches will be evaluated against our best first-level-model: base Random Forest. 
+To be able to fairly compare the average costs and confusion matrix metrics, we made sure to evaluated our Random Forest probabilities on the same final test-set (20% of total data) that the meta-models are tested on. This mitigates the possibility that the test-set of the meta-models holds bookings that are dis-proportionally difficult to predict.
+Technically, meta-models should have a slight edge now, as they were effectively trained on the initial $60%+20%=80%$ (training for first-level-models + training of meta-models), whereas we did not retrain the base random forest model (which now misses 20% of data across the train- & test-set).
+
+The table below displays a comparison of our findings:
 
 ```{r stacked_lr}
 source("models/StackedLR.R")
 ```
 
-Because the Random Forest Model still slightly outperforms the stacked models even if evaluated on the same test-set, we recommend utilizing this model.
+Firstly, the random forest’s average cost increased from $\$111$ (when evaluated on the full 40% test-set) to $\$123$ on the new meta-test split. This shift reflects the difference in test-set composition, validating the necessity of our mitigation for this fact.
+
+As the decision tree plot shows, tuning the complexity parameter induced more splits. Still, the comparison table makes it clear that none of the meta-learners were able to outperform the original random forest model, producing around 4.5% higher costs.
+This indicates that the base random forest already captures most of the predictive signal in the first-level models, leaving little for the stacked learners to improve upon.
+
+Because the Random Forest Model slightly outperforms the stacked models even if evaluated on the same test-set, our analysis concludes in the recommendation of this model.
 
 # Step 7: Implement Model
 
-We have found that the base models were fairly reliable at predicting Hotel booking cancellation. We ultimately decided to use the base random forest model as our final model, which gives an 82.1% accuracy and precision of 87.8%. Considering the financial implications based on our initial assumptions, the revenue loss due to empty rooms and overbooking reduced the average booking costs from $\$215$ to $\$110$. This corresponds to a relative decrease of 49%, and would mean $\$509,250$ of additional revenue per fiscal year for The City Hotel. We have calculated this number by multiplying the cost difference ($\$105$) by the number of reservations (4,850). These are excellent results even though I have not taken deeper exploration into the different variables or refined the assumptions.
+We have found that our models were fairly reliable at predicting Hotel booking cancellation. 
+After ultimately deciding to use the base random forest model as our final recommendation, we can expect our predictions to have an accuracy close to 80%, as an evaluated of this model on the $n=1940$ test-set yielded 37 False Positives and 343 False Negatives.
+
+The best estimates our modelling provides quantifies the revenue loss due to empty rooms and overbooking compensation to be around $\$111$ per booking on average.
+
+This is a reduction of the average booking costs from $\$215$ to $\$111$, which corresponds to a relative costs decrease of 49%, compared to having no model in place.
+
+Disregarding inflation, growth rate or seasonal effects, this would mean an additional revenue of $(\$215-\$111)*4850= \$504,400$ per fiscal year for The City Hotel in Ahmadabad. 
+
+_This number was calculated by multiplying the cost difference with the number of reservations our data-set counted for 2024 for this specific hotel._
 
 ## Next Steps
 
-Our plan is to start using the Random Forest Model daily to predict cancellation of future bookings. We will use an optimized probability threshold of 55% to classify whether a cancellation is expected or not. It will deploy real-time prediction in the booking system, so if a cancellation is expected, it will make the room available for booking again.
-This model would need to be optimized regularly with further exploration and considering the following limitations mentioned. This means that it would have the models retrained continuously with new and up-to-date data.
+We advise to use our random forest model operationally to predict cancellations for incoming bookings. We rely on an optimized probability threshold of 66% to decide whether a booking is likely to cancel, and for any case exceeding this threshold the system would set the room back back to available.
+This allows the hotel to act on predictions in real time and reduce the number of empty rooms.
+
+In practice, the model will need to be updated on a regular basis. Booking behavior changes over time, and the underlying data distribution may shift with seasons, customer segments, or pricing strategies. To remain reliable, the model should be retrained frequently on the newest available data and re-evaluated to ensure that the probability threshold and cost assumptions remain appropriate.
 
 ## Future Explorations
 
-#### 1. Extend relevance beyond saturated occupancy
-The predictive model only generates economic value on nights when the hotel expects to be fully booked or nearly full.
-Our cost structure assumes that every cancelled reservation translates into $500 of lost revenue, which is only true when demand is high.
-On low-demand nights, a cancellation often has no financial impact at all.
-Our estimated savings overstate the real-world benefit unless the model is used selectively during peak periods or paired with a demand-forecasting module.
+Our consulting project concludes with the present analysis. However, to convince the City Hotel to extend our services, we will shortly present several directions in which the Hotel could benefit from further development. These ideas span improvements to the economic framework, model architecture, data inputs, and operational integration.
 
-#### 2. Endogenize cost structure
-To keep the business problem tractable, we use a simple cost matrix:
-each room is treated as a single night at 500 dollars
-a cancellation always triggers a full refund
-a cancelled room is never rebooked
-Reality is more messy:
-Many reservations last several nights and the price per night changes with season, weekday and channel. Our model compresses all of that into one average 500 dollar number, so it is too conservative on high value nights and too aggressive on low value ones.
-We treat all cancellations as equally painful, whether they happen eleven months before arrival or at 18:00 on the check in day. In practice, early cancellations are often harmless because the room can be resold, while last minute cancellations are the ones that really hurt. Our loss matrix cannot see this timing difference.
-We assume a cancelled room can never be filled by walk in guests, last minute deals or corporate contracts. If in reality the hotel is quite good at reselling late cancellations, then we overstate the true cost of false negatives and our “optimal” threshold is too pessimistic.
-The acceptable level of overbooking changes with time to arrival, season and special events. A booking for peak season may deserve a different threshold from a booking on a quiet weekday.
-So the cost matrix should be read as a scenario that clarifies the logic of the problem, not as an exact accounting statement.
+#### 1. Refine and Contextualize the Cost Structure
 
-#### 3. Implement customer loyalty and Human Resource regards
-Our optimisation target is “average loss per reservation” computed from the confusion matrix and the cost matrix. This focuses entirely on direct cash flow: empty rooms and overbookings.
+The current cost matrix deliberately simplifies reality. It uses generalized values (for example, 500 dollars per lost booking) and assumes full refunds, no rebooking, and identical value across guests. Future work should replace these simplifications with reservation-specific financial information derived from the hotel’s systems. This includes pricing differences between room types, number of guests, multi-night stays, weekday and season effects, and channel-specific margins.
+Costs should become dynamic: late cancellations are far more harmful than early ones; the probability of rebooking should be estimated iteratively; and acceptable overbooking levels should vary by time to arrival and seasonality.
+A more realistic structure would also differentiate customer types, because loyal or high lifetime value guests should have higher misclassification costs due to long term brand risk. Similarly, operational stress on staff and reputational externalities from overbooking incidents could be quantified. These refinements would transform the cost matrix from an abstract scenario into a detailed financial instrument.
 
-This is a deliberate simplification, but it ignores several other dimensions that matter to a high end brand:
-All guests look identical to the model. It does not distinguish between a loyal frequent guest whose disappointment could be very costly in the long run and a one time visitor.
-The impact of a very bad overbooking experience on reviews, social media and future demand is not modelled. Ten slightly empty nights may be better for the brand than one highly visible service failure.
-Operational stress is ignored. Repeated overbooking incidents can increase staff workload, require managers to negotiate with partners and generally make the hotel harder to run.
-In that sense, our “best” model is best only with respect to a narrow financial objective. Management should still layer strategic judgement on top of it.
+#### 2. Strengthen the Economic Context and Policy Simulations
 
-#### 4. Include other potential drivers of cancellation
-Our data contains 4,850 bookings for one hotel, with rich information on dates, party size, booking channels, previous cancellations and some price-related variables. At the same time, some important drivers of cancellations are missing or very coarse.
-We do not observe income, detailed loyalty status, corporate contract identifiers or purpose of travel. A corporate group with twenty rooms cancelling once a year behaves very differently from a family booking through an online agent. The model cannot see this difference except indirectly through rough proxies.
-Many guests only appear once in the data set. For them the model has to rely entirely on general patterns. As a result, it can be confidently wrong in cases where reservation agents would have useful context that never enters the system.
-Because the data comes from a single hotel and a specific time period, it may contain idiosyncratic patterns related to local events, temporary promotions or internal policies that are not explicitly coded. The model may treat these as structural relationships even though they will not repeat.
-These blind spots mean that even a highly accurate model will sometimes misclassify bookings for reasons that have nothing to do with its “skill,” and they limit how far we can push overbooking based solely on predicted probabilities.
+Because cancellation prediction only generates value on high occupancy nights, the financial benefits of the model will be overstated without integrating demand forecasting. A joint system that predicts both cancellation risk and expected occupancy would ensure that overbooking decisions are used only when economically justified.
+Beyond occupancy, the model could support policy simulations. These include exploring differentiated cancellation fees, refining refund policies, incorporating dynamic compensation schemes, and investigating partnerships or coordinated overbooking agreements with sister hotels. Policy experimentation would allow management to quantify the financial and experiential impact of strategic decisions before implementation.
+
+#### 3. Expand Predictive Inputs and Data Scope
+
+Our dataset includes 4,850 bookings from a single hotel and a single period. While rich in reservation-level predictors, it lacks important behavioral and contextual data. Future data collection could include travel purpose, loyalty program details, corporate identifiers, customer satisfaction measures, or survey-based cancellation reasons. External datasets such as local event calendars, weather forecasts, flight price trends, or demand indices could capture additional drivers.
+Extending the dataset temporally (multiple years) and horizontally (additional properties within the hotel group) would mitigate overfitting to idiosyncratic patterns and improve generalization. A sensitivity analysis should also be conducted to test robustness across different cost assumptions, seasons and customer segments.
+
+#### 4. Operational Deployment and Decision Support Tools
+
+Finally, the model should be embedded into the hotel’s workflow. This includes continuous retraining on incoming data to avoid performance deterioration, automated monitoring of model drift, and periodic updating of the optimal threshold as financial assumptions change.
+A Shiny dashboard could provide real-time predictions for each reservation, offer threshold adjustment with live cost feedback, visualize expected cancellations and overbooking risk, and give management a transparent interface for decision-making.
+Operational tools could also estimate the actual resell probability of a cancelled room and track whether the model’s economic assumptions materialize in practice. This would close the feedback loop between predicted and realized outcomes.

@@ -2,12 +2,13 @@ library(caret)
 library(dplyr)
 library(ggplot2)
 
-# Load precomputed probabilities from first-level models (no ANN due to reasoning in write-up)
+# Load precomputed probabilities from first-level models
 log_test_prob <- readRDS("RDS/log_test_prob.rds")
 knn_test_prob <- readRDS("RDS/knn_test_prob.rds")
 c50_test_prob <- readRDS("RDS/c50_test_prob.rds")
 rf_test_prob  <- readRDS("RDS/rf_test_prob.rds")
 svm_test_prob <- readRDS("RDS/svm_linear_test_prob.rds")
+ann_test_prob <- readRDS("RDS/ann_test_prob.rds")
 
 # Outcome
 y_test <- df_test$is_canceled
@@ -96,7 +97,8 @@ best_by_cost <- results_all %>%
   slice_min(AvgCost, with_ties = FALSE) %>%
   ungroup()
 
-best_by_cost <- bind_rows(best_by_cost, baseline_row)
+best_by_cost <- bind_rows(best_by_cost, baseline_row)  %>%
+  arrange(AvgCost)
 
 print(best_by_cost)
 
